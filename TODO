@@ -1,0 +1,16 @@
+- basic fragment generation
+- export props
+- attribute js interpolation
+- event attributes
+- scoped styles (add via js)
+- importable nested components
+- slots
+
+NOT
+- templating (for as long as possible)
+- accessibility
+- transitions/motion/animation
+- binding
+- stores
+- special elements
+- context api

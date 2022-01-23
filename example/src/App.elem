@@ -1,0 +1,8 @@
+<script>
+	let name = "worlds";
+</script>
+
+<main test="{name}">
+	<h1>Welcome {name}!</h1>
+</main>
+
