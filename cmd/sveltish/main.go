@@ -55,10 +55,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.Println("listening on 8080...")
+	// Start http server
+	fs := http.FileServer(http.Dir("./example/public"))
+	http.Handle("/", fs)
 
-	log.Fatal(http.ListenAndServe(":8000",
-		logging(logger)(
-			http.FileServer(http.Dir("./example/public"))),
-	))
+	log.Println("Listening on :8080...")
+	err := http.ListenAndServe(":8080", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
