@@ -1,10 +1,33 @@
-- basic fragment generation
-- export props
-- attribute js interpolation
-- event attributes
-- scoped styles (add via js)
-- importable nested components
-- slots
+REQUIRED FUNCTIONALITY
+- Get '{...}' statements from html
+There is a basic implementation of this already, but for more complex DOM trees these will need to split into individual text nodes.
+
+- Moving the JS code
+Mainly moving the contents of the <script /> tag into the instance function. There are also a few other edge cases (i.e. moving/naming inline event handlers out of the html) which need to be considered.
+
+- Adding to the JS code
+Svelt's reactive updates are done by marking the when changes can happen. This means first going through the JS and finding all the root level functions / variables / declarations and adding them to the return of the instance function. Then finding all uses of assignment operators for the variables, and adding the $$invalidate or $$self.$$.update wrappers.
+
+With this functionality available, all of the BASIC FEATURES should be straight forward to implement. There is a chance the COMPOSITION FEATURES can be done with just these as well, but it might require a full JS ast (from esbuild or similar) to implement reliably.
+
+BASIC FEATURES
+- Intro / Adding data
+- Intro / Dynamic attributes
+- Reactivity / Assignments
+- Reactivity / Declarations
+- Reactivity / Statements
+- Events / DOM events
+- Events / Inline handlers
+- Classes / The class directive
+- Classes / Shorthand class directive
+
+COMPOSITION FEATURES
+- Intro / Nested components
+- Props / Declaring props
+- Props / Default values
+- Component composition / Slots
+- Component composition / Slot fallbacks
+- Component composition / Named slots
 
 NOT
 - templating (for as long as possible)

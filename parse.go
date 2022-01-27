@@ -45,6 +45,8 @@ func Parse(src io.Reader, name string) (*Component, error) {
 		HTML: &Node{},
 		CSS:  &Node{},
 	}
+
+	allHTML := make(map[*Node]bool)
 	walk(root, func(n *Node) bool {
 		switch n.Tag {
 		case "script":
@@ -54,9 +56,15 @@ func Parse(src io.Reader, name string) (*Component, error) {
 			c.CSS.Children = append(c.CSS.Children, n)
 			break
 		default:
+			allHTML[n] = true
+			if _, exists := allHTML[n.Parent]; exists {
+				break
+			}
+
 			c.HTML.Children = append(c.HTML.Children, n)
 		}
 		return true
 	})
+
 	return c, nil
 }
