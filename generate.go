@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/progrium/sveltish/internal/html"
 	"github.com/progrium/sveltish/internal/js"
 )
 
@@ -21,9 +22,9 @@ func GenerateJS(c *Component) ([]byte, error) {
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
-		WalkHTML(c.HTML, func(n HTMLNode, _ []HTMLNode) bool {
+		html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
 			switch node := n.(type) {
-			case *ElNode:
+			case *html.ElNode:
 				s.Stmt("let", node.Tag)
 			}
 			return true
@@ -31,13 +32,13 @@ func GenerateJS(c *Component) ([]byte, error) {
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
 			s.Stmt("c()", func(s *js.Source) {
-				WalkHTML(c.HTML, func(n HTMLNode, _ []HTMLNode) bool {
+				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
 					switch node := n.(type) {
-					case *ElNode:
+					case *html.ElNode:
 						s.Stmt(node.Tag, "=", fmt.Sprintf(`element("%s")`, node.Tag))
-						if len(node.Els) == 1 {
-							switch child := node.Els[0].(type) {
-							case *TxtNode:
+						if len(node.ChildNodes) == 1 {
+							switch child := node.ChildNodes[0].(type) {
+							case *html.TxtNode:
 								s.Stmt(
 									s.Chain(node.Tag, "textContent"),
 									"=",
@@ -51,14 +52,14 @@ func GenerateJS(c *Component) ([]byte, error) {
 				})
 			}, ",")
 			s.Stmt("m(target, anchor)", func(s *js.Source) {
-				WalkHTML(c.HTML, func(n HTMLNode, ps []HTMLNode) bool {
+				html.Walk(c.HTML, func(n html.Node, ps []html.NodeContainer) bool {
 					switch node := n.(type) {
-					case *ElNode:
+					case *html.ElNode:
 						s.Stmt(s.Call("insert", "target", node.Tag, "anchor"))
 
 						if len(ps) > 1 {
 							switch parent := ps[0].(type) {
-							case *ElNode:
+							case *html.ElNode:
 								s.Stmt(s.Call("append", parent.Tag, node.Tag))
 							}
 						}
@@ -70,9 +71,9 @@ func GenerateJS(c *Component) ([]byte, error) {
 			s.Line("i: noop,")
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
-				WalkHTML(c.HTML, func(n HTMLNode, _ []HTMLNode) bool {
+				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
 					switch node := n.(type) {
-					case *ElNode:
+					case *html.ElNode:
 						s.Stmt("if (detaching)", s.Call("detach", node.Tag))
 					}
 					return true
@@ -82,16 +83,18 @@ func GenerateJS(c *Component) ([]byte, error) {
 		})
 	})
 	s.Line("")
-	WalkHTML(c.JS, func(n HTMLNode, _ []HTMLNode) bool {
+	html.Walk(c.JS, func(n html.Node, _ []html.NodeContainer) bool {
 		switch node := n.(type) {
-		case *LeafElNode:
+		case *html.LeafElNode:
+			if node.Tag != "script" {
+				return false
+			}
+
 			s.Line(node.Content)
+			return false
 		}
 		return true
 	})
-	if len(c.JS.Roots) > 0 {
-
-	}
 	s.Line("")
 	s.Stmt("class", c.Name, "extends SvelteComponent", func(s *js.Source) {
 		s.Stmt("constructor(options)", func(s *js.Source) {

@@ -4,13 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/progrium/sveltish/internal/html"
 )
 
 type Component struct {
 	Name string
-	JS   *RootNode
-	HTML *RootNode
-	CSS  *RootNode
+	JS   *html.Doc
+	HTML *html.Doc
+	CSS  *html.Doc
 }
 
 func Build(path string) ([]byte, error) {
