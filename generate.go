@@ -22,17 +22,17 @@ func GenerateJS(c *Component) ([]byte, error) {
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
-		html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
+		html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) (bool, error) {
 			switch node := n.(type) {
 			case *html.ElNode:
 				s.Stmt("let", node.Tag)
 			}
-			return true
+			return true, nil
 		})
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
 			s.Stmt("c()", func(s *js.Source) {
-				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
+				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) (bool, error) {
 					switch node := n.(type) {
 					case *html.ElNode:
 						s.Stmt(node.Tag, "=", fmt.Sprintf(`element("%s")`, node.Tag))
@@ -44,15 +44,17 @@ func GenerateJS(c *Component) ([]byte, error) {
 									"=",
 									fmt.Sprintf("`%s`", strings.Replace(child.Content, "{", "${", -1)),
 								)
-								return false
+								return false, nil
 							}
 						}
 					}
-					return true
+					return true, nil
 				})
 			}, ",")
 			s.Stmt("m(target, anchor)", func(s *js.Source) {
-				html.Walk(c.HTML, func(n html.Node, ps []html.NodeContainer) bool {
+				html.Walk(c.HTML, func(n html.Node, ps []html.NodeContainer) (walkAll bool, _ error) {
+					walkAll = true
+
 					switch node := n.(type) {
 					case *html.ElNode:
 						if len(ps) == 1 {
@@ -64,19 +66,21 @@ func GenerateJS(c *Component) ([]byte, error) {
 							}
 						}
 					}
-					return true
+					return
 				})
 			}, ",")
 			s.Line("p: noop,")
 			s.Line("i: noop,")
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
-				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) bool {
+				html.Walk(c.HTML, func(n html.Node, _ []html.NodeContainer) (walkAll bool, _ error) {
+					walkAll = true
+
 					switch node := n.(type) {
 					case *html.ElNode:
 						s.Stmt("if (detaching)", s.Call("detach", node.Tag))
 					}
-					return true
+					return
 				})
 			})
 

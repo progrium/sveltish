@@ -21,25 +21,22 @@ func NewComponent(name string, doc *html.Doc) (*Component, error) {
 		HTML: &html.Doc{},
 	}
 
-	var err error
-	html.Walk(doc, func(n html.Node, ps []html.NodeContainer) bool {
-		if err != nil {
-			return false
-		}
-
+	err := html.Walk(doc, func(n html.Node, ps []html.NodeContainer) (bool, error) {
 		switch len(ps) {
 		case 0:
-			return true
+			return true, nil
 		case 1:
-			err = c.appendRoot(n)
-			return false
+			if err := c.appendRoot(n); err != nil {
+				return false, err
+			}
+			return false, nil
 		}
 		panic("html.Walk(...) in NewComponent(...) should never go more than depth 1")
 	})
-
 	if err != nil {
 		return c, err
 	}
+
 	return c, nil
 }
 
@@ -56,23 +53,16 @@ func (c *Component) appendRoot(n html.Node) error {
 	}
 	c.HTML.AppendChild(n)
 
-	var err error
-	html.Walk(n, func(n html.Node, _ []html.NodeContainer) bool {
-		if err != nil {
-			return false
-		}
-
+	err := html.Walk(n, func(n html.Node, _ []html.NodeContainer) (bool, error) {
 		//TODO, split into useful parts for generating svelet JS
-
 		if ln, ok := n.(*html.LeafElNode); ok && (ln.Tag == "script" || ln.Tag == "style") {
-			err = errors.New("Connot add <script /> or <style /> element other than as a root element")
-			return false
+			return false, errors.New("Connot add <script /> or <style /> element other than as a root element")
 		}
-		return true
+		return true, nil
 	})
-
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
