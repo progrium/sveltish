@@ -83,18 +83,9 @@ func GenerateJS(c *Component) ([]byte, error) {
 		})
 	})
 	s.Line("")
-	html.Walk(c.JS, func(n html.Node, _ []html.NodeContainer) bool {
-		switch node := n.(type) {
-		case *html.LeafElNode:
-			if node.Tag != "script" {
-				return false
-			}
-
-			s.Line(node.Content)
-			return false
-		}
-		return true
-	})
+	for _, jsEl := range c.JS {
+		s.Line(jsEl.Content)
+	}
 	s.Line("")
 	s.Stmt("class", c.Name, "extends SvelteComponent", func(s *js.Source) {
 		s.Stmt("constructor(options)", func(s *js.Source) {

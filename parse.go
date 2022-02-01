@@ -12,30 +12,10 @@ func Parse(src io.Reader, name string) (*Component, error) {
 		return nil, err
 	}
 
-	c := &Component{
-		Name: name,
-		JS:   &html.Doc{},
-		HTML: &html.Doc{},
-		CSS:  &html.Doc{},
+	c, err := NewComponent(doc, name)
+	if err != nil {
+		return c, err
 	}
-	html.Walk(doc, func(n html.Node, ps []html.NodeContainer) bool {
-		if len(ps) == 0 {
-			return true
-		}
-
-		if lf, ok := n.(*html.LeafElNode); ok {
-			switch lf.Tag {
-			case "script":
-				c.JS.AppendChild(lf)
-			case "style":
-				c.CSS.AppendChild(lf)
-			}
-			return false
-		}
-
-		c.HTML.AppendChild(n)
-		return false
-	})
 
 	return c, nil
 }
