@@ -4,158 +4,179 @@ import (
 	"errors"
 	"io"
 
-	"github.com/tdewolff/parse/v2"
 	"github.com/tdewolff/parse/v2/html"
 )
 
+type parser interface {
+	parse(*idGenerator, *lexer) error
+}
+
+type idGenerator struct {
+	id NodeId
+}
+
+func (idg *idGenerator) next() NodeId {
+	id := idg.id
+	idg.id += 1
+	return id
+}
+
 // Parse will take the html source and create a Doc node from it.
 func Parse(src io.Reader) (*Doc, error) {
-	n := &Doc{}
-	if _, err := n.Parse(html.NewLexer(parse.NewInput(src))); err != nil {
-		return n, err
+	doc := &Doc{}
+	if err := doc.parse(&idGenerator{}, newLexer(src)); err != nil {
+		return doc, err
 	}
 
-	return n, nil
+	return doc, nil
 }
 
-func (n *Doc) Parse(l Lexer) (Lexer, error) {
+func (n *Doc) parse(idg *idGenerator, lex *lexer) error {
+	n.id = idg.next()
+
 	var err error
 	for err == nil {
-		l, err = parseNextChild(l, n)
+		err = parseNextChild(n, idg, lex)
+	}
+	if err != io.EOF {
+		return err
 	}
 
-	if err != io.EOF {
-		return l, err
-	}
-	return l, nil
+	return nil
 }
 
-func (n *ElNode) Parse(l Lexer) (Lexer, error) {
-	tt, data := l.Next()
+func (n *ElNode) parse(idg *idGenerator, lex *lexer) error {
+	n.id = idg.next()
+
+	tt, data := lex.Next()
 	if tt != html.StartTagToken {
-		return l, errors.New("Invalid parser position passed to elNode.Parse")
+		return errors.New("Invalid parser position passed to elNode.parse")
 	}
 	n.Tag = string(data[1:])
 
-	var err error
-	l, err = parseAttr(l, n)
-	if err != nil {
-		return l, err
+	if err := parseAttr(n, lex); err != nil {
+		return err
 	}
 
-	tt, data = l.Next()
+	tt, data = lex.Next()
 	for tt != html.EndTagToken {
-		nextL, err := parseNextChild(wrapLexer(tt, data, l), n)
-		if err != nil {
-			return nextL, err
+		lex.rewind(tt, data)
+		if err := parseNextChild(n, idg, lex); err != nil {
+			return err
 		}
 
-		l = nextL
-		tt, data = l.Next()
+		tt, data = lex.Next()
 	}
-	return l, nil
+	return nil
 }
 
-func (n *LeafElNode) Parse(l Lexer) (Lexer, error) {
-	tt, data := l.Next()
+func (n *LeafElNode) parse(idg *idGenerator, lex *lexer) error {
+	n.id = idg.next()
+
+	tt, data := lex.Next()
 	switch tt {
 	case html.SvgToken:
-		return l, errors.New("NYI: parsing <svg />")
+		return errors.New("NYI: parsing <svg />")
 	case html.MathToken:
-		return l, errors.New("NYI: parsing <math />")
+		return errors.New("NYI: parsing <math />")
 	case html.StartTagToken:
 		n.Tag = string(data[1:])
 	default:
-		return l, errors.New("Invalid parser position passed to leafElNode.Parse")
+		return errors.New("Invalid parser position passed to leafElNode.parse")
 	}
 
-	var err error
-	l, err = parseAttr(l, n)
+	err := parseAttr(n, lex)
 	if err != nil {
-		return l, err
+		return err
 	}
 
-	tt, data = l.Next()
+	tt, data = lex.Next()
 	if tt == html.TextToken {
 		n.Content = string(data)
-		tt, data = l.Next()
+		tt, data = lex.Next()
 	}
 	if tt != html.EndTagToken {
-		return l, errors.New("Invalid parser token in leaf element")
+		return errors.New("Invalid parser token in leaf element")
 	}
 
-	return l, nil
+	return nil
 }
 
-func (n *TxtNode) Parse(l Lexer) (Lexer, error) {
-	tt, data := l.Next()
+func (n *TxtNode) parse(idg *idGenerator, lex *lexer) error {
+	n.id = idg.next()
+
+	tt, data := lex.Next()
 	if tt != html.TextToken {
-		return l, errors.New("Invalid parser position passed to txtNode.Parse")
+		return errors.New("Invalid parser position passed to txtNode.parse")
 	}
 
 	//TODO, parse {...} for content
 	n.Content = string(data)
-	return l, nil
+	return nil
 }
 
-func parseNextChild(l Lexer, n NodeContainer) (Lexer, error) {
-	var err error
-
-	tt, data := l.Next()
+func parseNextChild(n Container, idg *idGenerator, lex *lexer) error {
+	tt, data := lex.Next()
 	switch tt {
 	case html.StartTagToken:
-		var newNode Node
-		tag := string(data[1:])
-		if tag == "script" || tag == "style" {
+		var newNode interface {
+			Node
+			parser
+		}
+
+		switch string(data) {
+		case "<script", "<style":
 			newNode = &LeafElNode{}
-		} else {
+		default:
 			newNode = &ElNode{}
 		}
 
-		l, err = newNode.Parse(wrapLexer(tt, data, l))
-		if err != nil {
-			return l, err
+		lex.rewind(tt, data)
+		if err := newNode.parse(idg, lex); err != nil {
+			return err
 		}
 
 		n.AppendChild(newNode)
-		return l, nil
+		return nil
 	case html.SvgToken:
 	case html.MathToken:
 		newNode := &LeafElNode{}
-		l, err = newNode.Parse(wrapLexer(tt, data, l))
-		if err != nil {
-			return l, err
+
+		lex.rewind(tt, data)
+		if err := newNode.parse(idg, lex); err != nil {
+			return err
 		}
 
 		n.AppendChild(newNode)
-		return l, nil
+		return nil
 	case html.TextToken:
 		newNode := &TxtNode{}
-		l, err = newNode.Parse(wrapLexer(tt, data, l))
-		if err != nil {
-			return l, err
+
+		lex.rewind(tt, data)
+		if err := newNode.parse(idg, lex); err != nil {
+			return err
 		}
 
 		n.AppendChild(newNode)
-		return l, nil
+		return nil
 	case html.CommentToken:
-		return l, nil
+		return nil
 	case html.ErrorToken:
-		return l, l.Err()
+		return lex.Err()
 	}
 
-	return l, errors.New("invalid token in children")
+	return errors.New("invalid token in children")
 }
 
-func parseAttr(l Lexer, n Node) (Lexer, error) {
-	tt, _ := l.Next()
+func parseAttr(n Node, lex *lexer) error {
+	tt, _ := lex.Next()
 	for tt != html.StartTagCloseToken {
 		if tt != html.AttributeToken {
-			return l, errors.New("Invalid token when attribute expected")
+			return errors.New("Invalid token when attribute expected")
 		}
 
 		//TODO, parse attributes
-		tt, _ = l.Next()
+		tt, _ = lex.Next()
 	}
-	return l, nil
+	return nil
 }

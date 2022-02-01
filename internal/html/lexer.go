@@ -1,48 +1,45 @@
 package html
 
-import "github.com/tdewolff/parse/v2/html"
+import (
+	"io"
 
-// All lexers types for html will implment the Lexer interface.
-type Lexer interface {
-	Next() (html.TokenType, []byte)
-	Err() error
+	"github.com/tdewolff/parse/v2"
+	"github.com/tdewolff/parse/v2/html"
+)
+
+type lexer struct {
+	lex   *html.Lexer
+	stack []lexerOutput
 }
 
-type wrappedLexer struct {
-	tt        html.TokenType
-	data      []byte
-	canUnwrap bool
-	l         Lexer
+type lexerOutput struct {
+	tt   html.TokenType
+	data []byte
 }
 
-func wrapLexer(tt html.TokenType, data []byte, l Lexer) *wrappedLexer {
-	if wl, ok := l.(*wrappedLexer); ok {
-		return &wrappedLexer{tt, data, false, wl.unwrap()}
+func newLexer(src io.Reader) *lexer {
+	return &lexer{
+		html.NewLexer(parse.NewInput(src)),
+		[]lexerOutput{},
+	}
+}
+
+func (lex *lexer) rewind(tt html.TokenType, data []byte) {
+	lex.stack = append(lex.stack, lexerOutput{tt, data})
+}
+
+func (lex *lexer) Next() (html.TokenType, []byte) {
+	stackSize := len(lex.stack)
+	if stackSize == 0 {
+		return lex.lex.Next()
 	}
 
-	return &wrappedLexer{tt, data, false, l}
+	info := lex.stack[stackSize-1]
+	lex.stack = lex.stack[:stackSize-1]
+
+	return info.tt, info.data
 }
 
-func (l *wrappedLexer) unwrap() Lexer {
-	if !l.canUnwrap {
-		return l
-	}
-	if innerL, ok := l.l.(*wrappedLexer); ok {
-		return innerL.unwrap()
-	}
-
-	return l.l
-}
-
-func (l *wrappedLexer) Next() (html.TokenType, []byte) {
-	if l.canUnwrap {
-		return l.l.Next()
-	}
-
-	l.canUnwrap = true
-	return l.tt, l.data
-}
-
-func (l *wrappedLexer) Err() error {
-	return l.l.Err()
+func (lex *lexer) Err() error {
+	return lex.lex.Err()
 }
