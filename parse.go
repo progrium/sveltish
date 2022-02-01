@@ -6,13 +6,13 @@ import (
 	"github.com/progrium/sveltish/internal/html"
 )
 
-func Parse(src io.Reader, name string) (*Component, error) {
+func Parse(name string, src io.Reader) (*Component, error) {
 	doc, err := html.Parse(src)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := NewComponent(doc, name)
+	c, err := NewComponent(name, doc)
 	if err != nil {
 		return c, err
 	}

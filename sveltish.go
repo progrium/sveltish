@@ -13,7 +13,7 @@ func Build(path string) ([]byte, error) {
 	}
 
 	name := strings.Replace(filepath.Base(path), filepath.Ext(path), "", 1)
-	c, err := Parse(f, name)
+	c, err := Parse(name, f)
 	if err != nil {
 		return nil, err
 	}

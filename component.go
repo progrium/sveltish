@@ -13,7 +13,7 @@ type Component struct {
 	HTML *html.Doc //TODO, split into useful parts for generating svelet JS
 }
 
-func NewComponent(doc *html.Doc, name string) (*Component, error) {
+func NewComponent(name string, doc *html.Doc) (*Component, error) {
 	c := &Component{
 		Name: name,
 		JS:   []*html.LeafElNode{},
