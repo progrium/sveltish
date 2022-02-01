@@ -11,7 +11,11 @@ type Node interface {
 // All types that contain nodes implement the Container interface.
 type Container interface {
 	Children() []Node
-	AppendChild(Node)
+}
+
+type mutableContainer interface {
+	Container
+	appendChild(Node)
 }
 
 // A Doc node represents a full html document.
@@ -28,8 +32,13 @@ func (n *Doc) Children() []Node {
 	return n.Roots
 }
 
-func (n *Doc) AppendChild(child Node) {
+func (n *Doc) appendChild(child Node) {
 	n.Roots = append(n.Roots, child)
+}
+
+// TODO: This should be removed once Compnoent type has been updated
+func (n *Doc) AppendChild(child Node) {
+	n.appendChild(child)
 }
 
 // An ElNode represents an html element.
@@ -50,7 +59,7 @@ func (n *ElNode) Children() []Node {
 	return n.ChildNodes
 }
 
-func (n *ElNode) AppendChild(child Node) {
+func (n *ElNode) appendChild(child Node) {
 	n.ChildNodes = append(n.ChildNodes, child)
 }
 

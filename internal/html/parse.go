@@ -115,7 +115,7 @@ func (n *TxtNode) parse(idg *idGenerator, lex *lexer) error {
 	return nil
 }
 
-func parseNextChild(n Container, idg *idGenerator, lex *lexer) error {
+func parseNextChild(n mutableContainer, idg *idGenerator, lex *lexer) error {
 	tt, data := lex.Next()
 	switch tt {
 	case html.StartTagToken:
@@ -136,7 +136,7 @@ func parseNextChild(n Container, idg *idGenerator, lex *lexer) error {
 			return err
 		}
 
-		n.AppendChild(newNode)
+		n.appendChild(newNode)
 		return nil
 	case html.SvgToken:
 	case html.MathToken:
@@ -147,7 +147,7 @@ func parseNextChild(n Container, idg *idGenerator, lex *lexer) error {
 			return err
 		}
 
-		n.AppendChild(newNode)
+		n.appendChild(newNode)
 		return nil
 	case html.TextToken:
 		newNode := &TxtNode{}
@@ -157,7 +157,7 @@ func parseNextChild(n Container, idg *idGenerator, lex *lexer) error {
 			return err
 		}
 
-		n.AppendChild(newNode)
+		n.appendChild(newNode)
 		return nil
 	case html.CommentToken:
 		return nil
