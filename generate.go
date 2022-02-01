@@ -55,9 +55,9 @@ func GenerateJS(c *Component) ([]byte, error) {
 				html.Walk(c.HTML, func(n html.Node, ps []html.NodeContainer) bool {
 					switch node := n.(type) {
 					case *html.ElNode:
-						s.Stmt(s.Call("insert", "target", node.Tag, "anchor"))
-
-						if len(ps) > 1 {
+						if len(ps) == 1 {
+							s.Stmt(s.Call("insert", "target", node.Tag, "anchor"))
+						} else {
 							switch parent := ps[0].(type) {
 							case *html.ElNode:
 								s.Stmt(s.Call("append", parent.Tag, node.Tag))
