@@ -52,7 +52,7 @@ func (n *ElNode) parse(idg *idGenerator, lex *lexer) error {
 	if tt != html.StartTagToken {
 		return errors.New("Invalid parser position passed to elNode.parse")
 	}
-	n.Tag = string(data[1:])
+	n.tag = string(data[1:])
 
 	if err := parseAttr(n, lex); err != nil {
 		return err
@@ -80,7 +80,7 @@ func (n *LeafElNode) parse(idg *idGenerator, lex *lexer) error {
 	case html.MathToken:
 		return errors.New("NYI: parsing <math />")
 	case html.StartTagToken:
-		n.Tag = string(data[1:])
+		n.tag = string(data[1:])
 	default:
 		return errors.New("Invalid parser position passed to leafElNode.parse")
 	}
@@ -92,7 +92,7 @@ func (n *LeafElNode) parse(idg *idGenerator, lex *lexer) error {
 
 	tt, data = lex.Next()
 	if tt == html.TextToken {
-		n.Content = string(data)
+		n.content = string(data)
 		tt, data = lex.Next()
 	}
 	if tt != html.EndTagToken {
@@ -111,7 +111,7 @@ func (n *TxtNode) parse(idg *idGenerator, lex *lexer) error {
 	}
 
 	//TODO, parse {...} for content
-	n.Content = string(data)
+	n.content = string(data)
 	return nil
 }
 
