@@ -18,6 +18,9 @@ func Walk(n Node, fn func(Node, []NodeContainer) (bool, error)) error {
 func walk(n Node, ps []NodeContainer, fn func(Node, []NodeContainer) (bool, error)) error {
 	shouldWalkChildren, err := fn(n, ps)
 	if err != nil {
+		if shouldWalkChildren {
+			panic("Cannot walk children once an error is returned, always return false with an error")
+		}
 		return err
 	}
 	if !shouldWalkChildren {
@@ -31,7 +34,10 @@ func walk(n Node, ps []NodeContainer, fn func(Node, []NodeContainer) (bool, erro
 
 	ps = append([]NodeContainer{nc}, ps...)
 	for _, child := range nc.Children() {
-		walk(child, ps, fn)
+		err = walk(child, ps, fn)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -39,7 +45,7 @@ func walk(n Node, ps []NodeContainer, fn func(Node, []NodeContainer) (bool, erro
 type stopWalkError struct{}
 
 func (_ stopWalkError) Error() string {
-	return "A Walk call has been stopped"
+	return "A html tree Walk was stopped"
 }
 
 // StopWalk will stop traversal through the node tree without returning an
