@@ -3,7 +3,8 @@
 </script>
 
 <main test="{name}">
-	<h1>Welcome {name}!</h1>
+	<h1>Welcome <strong>{name}</strong>!</h1>
+	<h1>Another <strong>Welcome</strong>!</h1>
 </main>
 <footer>Test Footer</footer>
 

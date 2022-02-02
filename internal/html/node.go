@@ -1,57 +1,122 @@
 package html
 
+// A NodeId will identify individual nodes in a html tree.
+type NodeId int
+
 // All node types implement the Node interface.
 type Node interface {
-	Parse(l Lexer) (Lexer, error)
+	Id() NodeId
 }
 
-// All types that contain nodes implement the Container intereface
+// All types that have a tag implement the Tager interface
+type Tager interface {
+	Tag() string
+}
+
+// All types that contain nodes implement the Container interface.
 type Container interface {
 	Children() []Node
-	AppendChild(Node)
+}
+
+type mutableContainer interface {
+	Container
+	appendChild(Node)
+}
+
+// All types that have string content implement the Tager interface.
+type Contenter interface {
+	Content() string
 }
 
 // A Doc node represents a full html document.
 type Doc struct {
-	Roots []Node
+	id    NodeId
+	roots []Node
+}
+
+func (n *Doc) Id() NodeId {
+	return n.id
 }
 
 func (n *Doc) Children() []Node {
-	return n.Roots
+	return n.roots
 }
 
-func (n *Doc) AppendChild(child Node) {
-	n.Roots = append(n.Roots, child)
+func (n *Doc) appendChild(child Node) {
+	n.roots = append(n.roots, child)
 }
 
 // An ElNode represents an html element.
 type ElNode struct {
-	Tag        string
-	ChildNodes []Node //TODO change to .ChildNodes
+	id         NodeId
+	tag        string
+	childNodes []Node
 
 	//TODO, after parsing attr
 	//Attrs []struct{ Name string; Dir string; value *TxtNode; }
 }
 
+func (n *ElNode) Id() NodeId {
+	return n.id
+}
+
+func (n *ElNode) Tag() string {
+	return n.tag
+}
+
 func (n *ElNode) Children() []Node {
-	return n.ChildNodes
+	return n.childNodes
 }
 
-func (n *ElNode) AppendChild(child Node) {
-	n.ChildNodes = append(n.ChildNodes, child)
+func (n *ElNode) appendChild(child Node) {
+	n.childNodes = append(n.childNodes, child)
 }
 
-// A LeafElNode represents special cases of html elements who's children cannot be Parsed.
+// A LeafElNode represents special cases of html elements who's children
+// cannot be Parsed.
 type LeafElNode struct {
-	Tag     string
-	Content string
+	id      NodeId
+	tag     string
+	content string
+}
+
+func (n *LeafElNode) Id() NodeId {
+	return n.id
+}
+
+func (n *LeafElNode) Tag() string {
+	return n.tag
+}
+
+func (n *LeafElNode) Content() string {
+	return n.content
 }
 
 // A TxtNode represents the plain text in the html.
 type TxtNode struct {
-	Content string
+	id      NodeId
+	content string
 
 	//TODO, after parsing the {...}'s out
 	//Tmpl []string
 	//Args []string
+}
+
+func (n *TxtNode) Id() NodeId {
+	return n.id
+}
+
+func (n *TxtNode) Content() string {
+	return n.content
+}
+
+// IsContentWhiteSpace will check if all the .Content() only contains white
+// space chars.
+func IsContentWhiteSpace(n Contenter) bool {
+	for _, c := range n.Content() {
+		if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' {
+			return false
+		}
+	}
+	return true
 }
