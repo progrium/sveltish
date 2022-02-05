@@ -15,7 +15,22 @@ const (
 )
 
 func indexStartExpr(data []byte) int {
-	return bytes.IndexByte(data, curlyGroup[0])
+	index := bytes.IndexByte(data, curlyGroup[0])
+	if index == -1 {
+		return -1
+	}
+
+	isEscaped := isCharEscaped(data, index)
+	if isEscaped {
+		nextIndex := indexStartExpr(data[index+1:])
+		if nextIndex == -1 {
+			return -1
+		}
+
+		index += nextIndex + 1
+	}
+
+	return index
 }
 
 func indexAfterExpr(data []byte) int {
@@ -99,13 +114,7 @@ func (et *exprTracker) next() {
 	et.index += nextIndex
 	currChar := et.data[et.index]
 
-	isEscaped := false
-	lastIndex := et.index - 1
-	for et.data[lastIndex] == '\\' && lastIndex != 0 {
-		isEscaped = !isEscaped
-		lastIndex -= 1
-	}
-	if isEscaped {
+	if isEscaped := isCharEscaped(et.data, et.index); isEscaped {
 		return
 	}
 
@@ -138,4 +147,19 @@ func (et *exprTracker) next() {
 	}
 
 	panic("bytes.IndexAny found char not in allGroupChars")
+}
+
+func isCharEscaped(data []byte, index int) bool {
+	if index == 0 {
+		return false
+	}
+
+	isEscaped := false
+	lastIndex := index - 1
+	for lastIndex > 0 && data[lastIndex] == '\\' {
+		isEscaped = !isEscaped
+		lastIndex -= 1
+	}
+
+	return isEscaped
 }
