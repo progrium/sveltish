@@ -110,8 +110,34 @@ func (n *TxtNode) parse(idg *idGenerator, lex *lexer) error {
 		return errors.New("Invalid parser position passed to txtNode.parse")
 	}
 
-	//TODO, parse {...} for content
+	exprIndex := indexStartExpr(data)
+	if exprIndex != -1 {
+		lex.rewind(tt, data[exprIndex:])
+		data = data[:exprIndex]
+	}
+
 	n.content = string(data)
+	return nil
+}
+
+func (n *ExprNode) parse(idg *idGenerator, lex *lexer) error {
+	n.id = idg.next()
+
+	tt, data := lex.Next()
+	if tt != html.TextToken || data[0] != '{' {
+		return errors.New("Invalid parser position passed to DyncTxtNode.parse")
+	}
+
+	txtIndex := indexAfterExpr(data)
+	if txtIndex == -1 {
+		return errors.New("Expression was opened but not closed")
+	}
+	if txtIndex != len(data) {
+		lex.rewind(tt, data[txtIndex:])
+		data = data[:txtIndex]
+	}
+
+	n.js = string(data[1 : len(data)-1])
 	return nil
 }
 
@@ -150,7 +176,15 @@ func parseNextChild(n mutableContainer, idg *idGenerator, lex *lexer) error {
 		n.appendChild(newNode)
 		return nil
 	case html.TextToken:
-		newNode := &TxtNode{}
+		var newNode interface {
+			Node
+			parser
+		}
+		if data[0] == '{' {
+			newNode = &ExprNode{}
+		} else {
+			newNode = &TxtNode{}
+		}
 
 		lex.rewind(tt, data)
 		if err := newNode.parse(idg, lex); err != nil {

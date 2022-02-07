@@ -25,6 +25,9 @@ func GenerateJS(c *Component) ([]byte, error) {
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
 		for _, nv := range c.HTML {
 			s.Stmt("let", nv.name)
+			if exn, ok := nv.node.(*html.ExprNode); ok {
+				s.Stmt("let", fmt.Sprintf("%s_value", nv.name), "=", exn.JsContent())
+			}
 		}
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
@@ -41,6 +44,8 @@ func GenerateJS(c *Component) ([]byte, error) {
 						} else {
 							s.Stmt(nv.name, "=", fmt.Sprintf(`text("%s")`, node.Content()))
 						}
+					case *html.ExprNode:
+						s.Stmt(nv.name, "=", fmt.Sprintf("text(%s_value)", nv.name))
 					}
 				}
 			}, ",")
