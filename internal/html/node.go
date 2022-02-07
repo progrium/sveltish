@@ -96,10 +96,6 @@ func (n *LeafElNode) Content() string {
 type TxtNode struct {
 	id      NodeId
 	content string
-
-	//TODO, after parsing the {...}'s out
-	//Tmpl []string
-	//Args []string
 }
 
 func (n *TxtNode) Id() NodeId {
@@ -108,6 +104,24 @@ func (n *TxtNode) Id() NodeId {
 
 func (n *TxtNode) Content() string {
 	return n.content
+}
+
+// An ExprNode represents javascript expresion that value is put into a text node.
+type ExprNode struct {
+	id NodeId
+	js string
+}
+
+func (n *ExprNode) Id() NodeId {
+	return n.id
+}
+
+func (n *ExprNode) Content() string {
+	return "{" + n.js + "}"
+}
+
+func (n *ExprNode) JsContent() string {
+	return n.js
 }
 
 // IsContentWhiteSpace will check if all the .Content() only contains white

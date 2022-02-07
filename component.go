@@ -180,7 +180,7 @@ func prefixFor(n html.Node) (string, bool) {
 	switch node := n.(type) {
 	case html.Tager:
 		return node.Tag(), true
-	case *html.TxtNode:
+	case *html.TxtNode, *html.ExprNode:
 		return "t", true
 	}
 
