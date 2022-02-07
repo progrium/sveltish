@@ -2,7 +2,7 @@
 	let name = "worlds";
 </script>
 
-<main test="{name}">
+<main test="with {name}" another="test" no-value>
 	<h1>Welcome <strong>{name}</strong>!</h1>
 	<h1>Another <strong>Welcome</strong>!</h1>
 </main>
