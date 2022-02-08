@@ -128,7 +128,7 @@ func (n *ExprNode) JsContent() string {
 // space chars.
 func IsContentWhiteSpace(n Contenter) bool {
 	for _, c := range n.Content() {
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' {
+		if !isWhiteSpace(byte(c)) {
 			return false
 		}
 	}
