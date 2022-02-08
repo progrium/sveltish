@@ -178,7 +178,7 @@ func (nt *nameTracker) nameOf(n html.Node) (string, bool) {
 
 func prefixFor(n html.Node) (string, bool) {
 	switch node := n.(type) {
-	case html.Tager:
+	case html.Element:
 		return node.Tag(), true
 	case *html.TxtNode, *html.ExprNode:
 		return "t", true
