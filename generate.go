@@ -2,6 +2,7 @@ package sveltish
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/progrium/sveltish/internal/html"
 	"github.com/progrium/sveltish/internal/js"
@@ -16,6 +17,7 @@ func GenerateJS(c *Component) ([]byte, error) {
   element,
   text,
   space,
+  attr,
   init,
   insert,
   noop,
@@ -27,6 +29,11 @@ func GenerateJS(c *Component) ([]byte, error) {
 			s.Stmt("let", nv.name)
 			if exn, ok := nv.node.(*html.ExprNode); ok {
 				s.Stmt("let", fmt.Sprintf("%s_value", nv.name), "=", exn.JsContent())
+			}
+			if el, ok := nv.node.(html.Element); ok {
+				for _, attr := range el.Attrs() {
+					s.Stmt("let", generateAttrName(nv.name, attr))
+				}
 			}
 		}
 		s.Line("")
@@ -46,6 +53,17 @@ func GenerateJS(c *Component) ([]byte, error) {
 						}
 					case *html.ExprNode:
 						s.Stmt(nv.name, "=", fmt.Sprintf("text(%s_value)", nv.name))
+					}
+
+					if el, ok := nv.node.(html.Element); ok {
+						for _, attr := range el.Attrs() {
+							s.Stmt(s.Call(
+								"attr",
+								nv.name,
+								"'"+attr.Name()+"'",
+								fmt.Sprintf("%s = %s", generateAttrName(nv.name, attr), attr.JsContent()),
+							))
+						}
 					}
 				}
 			}, ",")
@@ -88,4 +106,10 @@ func GenerateJS(c *Component) ([]byte, error) {
 	s.Stmt("export default", c.Name)
 	fmt.Println(s.String())
 	return s.Bytes(), nil
+}
+
+func generateAttrName(nodeName string, attr html.Attr) string {
+	attrName := strings.ReplaceAll(attr.Name(), "-", "_")
+
+	return fmt.Sprintf("%s_%s_value", nodeName, attrName)
 }

@@ -202,15 +202,20 @@ func parseNextChild(n mutableContainer, idg *idGenerator, lex *lexer) error {
 	return errors.New("invalid token in children")
 }
 
-func parseAttr(n Node, lex *lexer) error {
-	tt, _ := lex.Next()
+func parseAttr(n mutableElement, lex *lexer) error {
+	tt, data := lex.Next()
 	for tt != html.StartTagCloseToken {
 		if tt != html.AttributeToken {
 			return errors.New("Invalid token when attribute expected")
 		}
 
-		//TODO, parse attributes
-		tt, _ = lex.Next()
+		attr, err := newAttr(data)
+		if err != nil {
+			return err
+		}
+		n.appendAttr(attr)
+
+		tt, data = lex.Next()
 	}
 	return nil
 }

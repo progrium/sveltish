@@ -8,9 +8,15 @@ type Node interface {
 	Id() NodeId
 }
 
-// All types that have a tag implement the Tager interface
-type Tager interface {
+// All element types implement the Element interface
+type Element interface {
 	Tag() string
+	Attrs() []Attr
+}
+
+type mutableElement interface {
+	Element
+	appendAttr(Attr)
 }
 
 // All types that contain nodes implement the Container interface.
@@ -23,9 +29,14 @@ type mutableContainer interface {
 	appendChild(Node)
 }
 
-// All types that have string content implement the Tager interface.
+// All types that have string content implement the Contenter interface.
 type Contenter interface {
 	Content() string
+}
+
+// All types that have javacript content implement the Contenter interface.
+type JsContenter interface {
+	JsContent() string
 }
 
 // A Doc node represents a full html document.
@@ -46,14 +57,12 @@ func (n *Doc) appendChild(child Node) {
 	n.roots = append(n.roots, child)
 }
 
-// An ElNode represents an html element.
+// An ElNode represents an html element with child nodes.
 type ElNode struct {
 	id         NodeId
 	tag        string
+	attrs      []Attr
 	childNodes []Node
-
-	//TODO, after parsing attr
-	//Attrs []struct{ Name string; Dir string; value *TxtNode; }
 }
 
 func (n *ElNode) Id() NodeId {
@@ -62,6 +71,14 @@ func (n *ElNode) Id() NodeId {
 
 func (n *ElNode) Tag() string {
 	return n.tag
+}
+
+func (n *ElNode) Attrs() []Attr {
+	return n.attrs
+}
+
+func (n *ElNode) appendAttr(a Attr) {
+	n.attrs = append(n.attrs, a)
 }
 
 func (n *ElNode) Children() []Node {
@@ -77,6 +94,7 @@ func (n *ElNode) appendChild(child Node) {
 type LeafElNode struct {
 	id      NodeId
 	tag     string
+	attrs   []Attr
 	content string
 }
 
@@ -86,6 +104,14 @@ func (n *LeafElNode) Id() NodeId {
 
 func (n *LeafElNode) Tag() string {
 	return n.tag
+}
+
+func (n *LeafElNode) Attrs() []Attr {
+	return n.attrs
+}
+
+func (n *LeafElNode) appendAttr(a Attr) {
+	n.attrs = append(n.attrs, a)
 }
 
 func (n *LeafElNode) Content() string {
@@ -128,7 +154,7 @@ func (n *ExprNode) JsContent() string {
 // space chars.
 func IsContentWhiteSpace(n Contenter) bool {
 	for _, c := range n.Content() {
-		if c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f' {
+		if !isWhiteSpace(byte(c)) {
 			return false
 		}
 	}
