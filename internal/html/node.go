@@ -1,5 +1,9 @@
 package html
 
+import (
+	"unicode"
+)
+
 // A NodeId will identify individual nodes in a html tree.
 type NodeId int
 
@@ -154,7 +158,7 @@ func (n *ExprNode) JsContent() string {
 // space chars.
 func IsContentWhiteSpace(n Contenter) bool {
 	for _, c := range n.Content() {
-		if !isWhiteSpace(byte(c)) {
+		if !unicode.IsSpace(c) {
 			return false
 		}
 	}

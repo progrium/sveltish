@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"strings"
+	"unicode"
 )
 
 // An attr represents an attribute on an html element.
@@ -90,7 +91,7 @@ func newAttr(data []byte) (Attr, error) {
 
 func stripInitWhiteSpace(data []byte) []byte {
 	remaingData := data
-	for len(remaingData) != 0 && isWhiteSpace(remaingData[0]) {
+	for len(remaingData) != 0 && unicode.IsSpace(rune(remaingData[0])) {
 		remaingData = remaingData[1:]
 	}
 	return remaingData

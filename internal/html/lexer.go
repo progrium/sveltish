@@ -43,7 +43,3 @@ func (lex *lexer) Next() (html.TokenType, []byte) {
 func (lex *lexer) Err() error {
 	return lex.lex.Err()
 }
-
-func isWhiteSpace(b byte) bool {
-	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f'
-}
