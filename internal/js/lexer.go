@@ -1,0 +1,669 @@
+package js
+
+import (
+	"bytes"
+	"unicode"
+	//"fmt"
+	//"github.com/davecgh/go-spew/spew"
+)
+
+// tokenType identifies the type of lex items.
+type tokenType int
+
+const (
+	eofType     tokenType = -1
+	commentType tokenType = iota
+	keywordType
+	exprType
+	varNameType
+	eqOpType
+	simiOpType
+	paramsType
+	codeBlockType
+	errorType
+)
+
+func (tt tokenType) String() string {
+	switch tt {
+	case eofType:
+		return "eof"
+	case commentType:
+		return "comment"
+	case keywordType:
+		return "keywordType"
+	case exprType:
+		return "expr"
+	case varNameType:
+		return "varName"
+	case eqOpType:
+		return "eqOp"
+	case simiOpType:
+		return "simiOp"
+	case paramsType:
+		return "params"
+	case codeBlockType:
+		return "codeBlock"
+	case errorType:
+		return "error"
+	}
+
+	return "Unkown token type"
+}
+
+const (
+	lineCommentOpen    = "//"
+	blockCommentOpen   = "/*"
+	blockCommentClose  = "*/"
+	parenOpen          = "("
+	parenClose         = ")"
+	curlyOpen          = "{"
+	curlyClose         = "}"
+	quoteEscape        = `\`
+	singleQuote        = "'"
+	doubleQuote        = `"`
+	tmplQuote          = "`"
+	tmplQuoteExprOpen  = "${"
+	tmplQuoteExprClose = "}"
+	regexQuote         = "/"
+	varKeyword         = "var"
+	letKeyword         = "let"
+	constKeyword       = "const"
+	funcKeyword        = "function"
+	ifKeyword          = "if"
+	elseKeyword        = "else"
+	forKeyword         = "for"
+	whileKeyword       = "while"
+	doKeyword          = "do"
+	switchKeyword      = "switch"
+	withKeyword        = "with"
+	tryKeyword         = "try"
+	catchKeyword       = "catch"
+	finallyKeyword     = "finally"
+	classKeyword       = "class"
+	extendsKeyword     = "extends"
+	eqOp               = "="
+	simiOp             = ";"
+	newLine            = "\n"
+)
+
+// lexer holds the state of the scanner.
+type lexer struct {
+	data     []byte
+	startPos int
+	nextPos  int
+	items    chan lexerItem
+}
+
+type lexerItem struct {
+	tt   tokenType
+	data []byte
+}
+
+// startNewLexer creates and starts a new lexer.
+func startNewLexer(data []byte) *lexer {
+	lex := &lexer{
+		data:     data,
+		startPos: 0,
+		nextPos:  0,
+		items:    make(chan lexerItem),
+	}
+
+	go func() {
+		lex.acceptSpaces()
+		if lex.acceptComment() {
+			lex.emit(commentType)
+			lex.acceptSpaces()
+		}
+
+		for fn := lexRoot(); fn != nil; {
+			fn = fn(lex)
+		}
+		close(lex.items)
+	}()
+
+	return lex
+}
+
+// next returns the next token from the lexer
+func (lex *lexer) next() (tokenType, []byte) {
+	item, ok := <-lex.items
+	if !ok {
+		return eofType, nil
+	}
+
+	return item.tt, item.data
+}
+
+/*func (lex *lexer) String() string {
+	return fmt.Sprintf(
+		"start=%d next=%d [%q:%q:%q]",
+		lex.startPos,
+		lex.nextPos,
+		lex.data[:lex.startPos],
+		lex.data[lex.startPos:lex.nextPos],
+		lex.data[lex.nextPos:]
+	)
+}*/
+
+// emit passes the item for next to return.
+func (lex *lexer) emit(tt tokenType) {
+	lex.items <- lexerItem{
+		tt:   tt,
+		data: lex.data[lex.startPos:lex.nextPos],
+	}
+	lex.startPos = lex.nextPos
+
+	lex.acceptSpaces()
+	if lex.acceptComment() {
+		lex.emit(commentType)
+		lex.acceptSpaces()
+	}
+}
+
+// emitError passes an error for next to return.
+func (lex *lexer) emitError(message string) {
+	lex.items <- lexerItem{
+		tt:   errorType,
+		data: []byte(message),
+	}
+}
+
+// pop will get the next byte from data.
+func (lex *lexer) pop() (byte, bool) {
+	if lex.atEnd() {
+		return 0, false
+	}
+
+	c := lex.data[lex.nextPos]
+	lex.movePos(1)
+	return c, true
+}
+
+// peek will get but not consume the next byte from data.
+func (lex *lexer) peek() (byte, bool) {
+	c, ok := lex.pop()
+	if !ok {
+		return 0, false
+	}
+	lex.backup()
+
+	return c, true
+}
+
+// backup go back one byte in the data.
+func (lex *lexer) backup() {
+	lex.movePos(-1)
+}
+
+// atEnd check if lexer is at the end of the data
+func (lex *lexer) atEnd() bool {
+	return lex.nextPos == len(lex.data)
+}
+
+// movePos will move the lexer by the given value
+func (lex *lexer) movePos(by int) {
+	if lex.nextPos+by < lex.startPos {
+		panic("Trying to move currPos before start data")
+	}
+	if lex.nextPos+by > len(lex.data) {
+		panic("Trying to move currPos outside of data")
+	}
+
+	lex.nextPos += by
+}
+
+// acceptSpaces will add the string of spaces to the current lex token.
+func (lex *lexer) acceptSpaces() bool {
+	c, ok := lex.pop()
+	if !ok {
+		return false
+	}
+
+	foundSpace := false
+	for unicode.IsSpace(rune(c)) {
+		foundSpace = true
+
+		c, ok = lex.pop()
+		if !ok {
+			return true
+		}
+	}
+
+	lex.backup()
+	return foundSpace
+}
+
+// acceptComment will add a valid comment to the current lex token
+func (lex *lexer) acceptComment() bool {
+	switch {
+	case lex.acceptExact(lineCommentOpen):
+		lex.skip(newCommentSkipper(lineCommentOpen, newLine))
+		return true
+	case lex.acceptExact(blockCommentOpen):
+		lex.skip(newCommentSkipper(blockCommentOpen, blockCommentClose))
+		return true
+	}
+
+	return false
+}
+
+// acceptExact will add the exact val to the current lex token, if it is next.
+func (lex *lexer) acceptExact(val string) bool {
+	if val == "" {
+		return false
+	}
+
+	valBytes := []byte(val)
+	if found := bytes.HasPrefix(lex.data[lex.nextPos:], valBytes); !found {
+		return false
+	}
+
+	lex.movePos(len(valBytes))
+	return true
+}
+
+// acceptVarName will add the given keyword to the current lex token
+func (lex *lexer) acceptKeyword(kw string) bool {
+	if found := lex.acceptExact(kw); !found {
+		return false
+	}
+
+	next, ok := lex.peek()
+	switch {
+	case !ok:
+		return true
+	case unicode.IsSpace(rune(next)):
+		return true
+	case string(next) == parenOpen:
+		return true
+	case string(next) == curlyOpen:
+		return true
+	}
+
+	return false
+}
+
+const (
+	vaildFirstVarChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+	validVarChars      = vaildFirstVarChars + "0123456789"
+)
+
+// acceptVarName will add a valid variable name to the current lex token
+func (lex *lexer) acceptVarName() bool {
+	c, ok := lex.pop()
+	if !ok {
+		return false
+	}
+
+	if !bytes.ContainsAny([]byte{c}, vaildFirstVarChars) {
+		lex.backup()
+		return false
+	}
+	for {
+		c, ok = lex.pop()
+		if !ok {
+			return true
+		}
+
+		if !bytes.ContainsAny([]byte{c}, validVarChars) {
+			lex.backup()
+			return true
+		}
+	}
+}
+
+// acceptExpr will add a everything until an expr end to the current lex token, i.e. it always return true
+func (lex *lexer) acceptExpr() bool {
+	for {
+		lex.acceptSpaces()
+		lex.acceptComment()
+		switch {
+		case lex.acceptEndOfExpr():
+			return true
+		case lex.acceptExact(curlyOpen):
+			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		case lex.acceptExact(parenOpen):
+			lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		case lex.acceptExact(singleQuote):
+			lex.skip(newQuoteSkipper(byte(singleQuote[0])))
+		case lex.acceptExact(doubleQuote):
+			lex.skip(newQuoteSkipper(byte(doubleQuote[0])))
+		case lex.acceptExact(tmplQuote):
+			lex.skip(newQuoteSkipper(byte(tmplQuote[0])))
+		case lex.acceptExact(regexQuote):
+			lex.skip(newQuoteSkipper(byte(regexQuote[0])))
+		default:
+			lex.pop()
+		}
+	}
+}
+
+// acceptEndOfExpr will add a valid expr end to the current lex token, simiOp will not be accepted (just checked for)
+func (lex *lexer) acceptEndOfExpr() bool {
+	c, ok := lex.peek()
+	if !ok {
+		return true
+	}
+	switch c {
+	case byte(simiOp[0]):
+		return true
+	case byte(newLine[0]):
+		lex.pop()
+		return true
+	}
+
+	return false
+}
+
+// skip will use a skipper to ignore code that does not need lexed
+func (lex *lexer) skip(skpr skipper) {
+	for skpr.isOpen() {
+		c, ok := lex.pop()
+		if !ok {
+			return
+		}
+
+		skpr.next(c)
+	}
+}
+
+// The lexerFuncs are used to lex a sepific part of the js and returns
+// another lexerFunc that can lex the next part
+type lexFn func(*lexer) lexFn
+
+// lexRoot will tokenize the root javascript scope
+func lexRoot() lexFn {
+	return func(lex *lexer) lexFn {
+		if lex.atEnd() {
+			return nil
+		}
+
+		lexBlockFn := lexBlock(eofType, "", lexRoot())
+		return lexBlockFn(lex)
+	}
+}
+
+// lexBlock will tokenize a javascript block
+func lexBlock(closeType tokenType, close string, lastLex lexFn) lexFn {
+	var lexBlockFn lexFn
+	lexBlockFn = func(lex *lexer) lexFn {
+		lex.acceptSpaces()
+
+		switch {
+		case lex.atEnd():
+			if closeType != eofType && closeType != simiOpType {
+				lex.emitError("Code block not closed")
+				return nil
+			}
+
+			return lastLex
+		case lex.acceptKeyword(varKeyword), lex.acceptKeyword(letKeyword), lex.acceptKeyword(constKeyword):
+			lex.emit(keywordType)
+			return lexVar(lexBlockFn)
+		case lex.acceptKeyword(funcKeyword):
+			lex.emit(keywordType)
+			return lexFunction(lexBlockFn)
+		case lex.acceptKeyword(ifKeyword):
+			lex.emit(keywordType)
+			return lexIfStmt(lexBlockFn)
+		case lex.acceptKeyword(forKeyword), lex.acceptKeyword(whileKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(withKeyword):
+			lex.emit(keywordType)
+			return lexCtrlStruct(lexBlockFn)
+		case lex.acceptExact(doKeyword):
+			lex.emit(keywordType)
+			return lexDoWhile(lexBlockFn)
+		case lex.acceptExact(tryKeyword):
+			lex.emit(keywordType)
+			return lexTryCatch(lexBlockFn)
+		case lex.acceptExact(classKeyword):
+			lex.emit(keywordType)
+			return lexClass(lexBlockFn)
+		}
+
+		if lex.acceptExact(close) {
+			lex.emit(closeType)
+			return lastLex
+		}
+		if closeType == simiOpType {
+			if c, ok := lex.peek(); !ok || c == '\n' {
+				return lastLex
+			}
+		}
+
+		return lexBlockFn
+	}
+	return lexBlockFn
+}
+
+// lexVar will tokenize a javascript variable defintion, starting after the keyword
+func lexVar(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		//TODO allow destructuring
+		if found := lex.acceptVarName(); !found {
+			lex.emitError("No variable name found")
+			return nil
+		}
+		lex.emit(varNameType)
+
+		if found := lex.acceptExact(eqOp); !found {
+			if found := lex.acceptExact(simiOp); found {
+				lex.emit(simiOpType)
+			}
+
+			return lastLex
+		}
+		lex.emit(eqOpType)
+
+		lex.acceptExpr()
+		lex.emit(exprType)
+		if lex.acceptExact(simiOp) {
+			lex.emit(simiOpType)
+		}
+		return lastLex
+	}
+}
+
+// lexFunction will tokenize a javascript function defintion, starting after the keyword
+func lexFunction(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptVarName(); found {
+			lex.emit(varNameType)
+		}
+
+		if found := lex.acceptExact(parenOpen); !found {
+			lex.emitError("No arguments given for function")
+		}
+		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.emit(paramsType) //TODO, add this type
+
+		if found := lex.acceptExact(curlyOpen); !found {
+			lex.emitError("No body given for function")
+		}
+		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.emit(codeBlockType) //TODO, add this type (maybe replace expr)
+		return lastLex
+	}
+}
+
+// lexIfStmt will tokenize a javascript if/else control structures, starting after the keyword
+func lexIfStmt(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptExact(parenOpen); !found {
+			lex.emitError("No params given for if stmt")
+		}
+		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.emit(paramsType)
+
+		if found := lex.acceptExact(curlyOpen); found {
+			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.emit(codeBlockType)
+		} else {
+			lex.acceptExpr()
+			lex.emit(exprType)
+			if lex.acceptExact(simiOp) {
+				lex.emit(simiOpType)
+			}
+		}
+
+		for {
+			if found := lex.acceptExact(elseKeyword); !found {
+				//TODO, add this type (replace other keywords)
+				return lastLex
+			}
+			lex.emit(keywordType)
+
+			if found := lex.acceptExact(ifKeyword); found {
+				lex.emit(keywordType)
+				if found := lex.acceptExact(parenOpen); !found {
+					lex.emitError("No params given for else if stmt")
+				}
+				lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+				lex.emit(paramsType)
+			}
+
+			if found := lex.acceptExact(curlyOpen); found {
+				lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+				lex.emit(codeBlockType)
+			} else {
+				lex.acceptExpr()
+				lex.emit(exprType)
+				if lex.acceptExact(simiOp) {
+					lex.emit(simiOpType)
+				}
+			}
+		}
+	}
+}
+
+// lexCtrlStruct will tokenize a javascript while/for/switch/with control structures, starting after the keyword
+func lexCtrlStruct(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptExact(parenOpen); !found {
+			lex.emitError("No params given for control structure")
+		}
+		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.emit(paramsType)
+		lex.acceptSpaces()
+
+		if found := lex.acceptExact(curlyOpen); found {
+			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.emit(codeBlockType)
+		} else {
+			lex.acceptExpr()
+			lex.emit(exprType)
+			if lex.acceptExact(simiOp) {
+				lex.emit(simiOpType)
+			}
+		}
+
+		return lastLex
+	}
+}
+
+// lexDoWhile will tokenize a javascript do while control structures, starting after the keyword
+func lexDoWhile(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptExact(curlyOpen); found {
+			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.emit(codeBlockType)
+		} else {
+			lex.acceptExpr()
+			lex.emit(exprType)
+			if lex.acceptExact(simiOp) {
+				lex.emit(simiOpType)
+			}
+		}
+
+		if found := lex.acceptKeyword(whileKeyword); !found {
+			lex.emitError("Do while loop has no while condition")
+			return nil
+		}
+		lex.emit(keywordType)
+
+		if found := lex.acceptExact(parenOpen); !found {
+			lex.emitError("No params given for do while loop")
+			return nil
+		}
+		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.emit(paramsType)
+
+		if found := lex.acceptExact(simiOp); !found {
+			lex.emitError("No semicolon after do while loop")
+			return nil
+		}
+		lex.emit(simiOpType)
+
+		return lastLex
+	}
+}
+
+// lexTryCatch will tokenize a javascript try catch control structures, starting after the keyword
+func lexTryCatch(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptExact(curlyOpen); !found {
+			lex.emitError("No body given for try")
+			return nil
+		}
+		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.emit(codeBlockType)
+
+		if found := lex.acceptKeyword(catchKeyword); !found {
+			lex.emitError("No catch given for try")
+			return nil
+		}
+		lex.emit(keywordType)
+
+		if found := lex.acceptExact(parenOpen); found {
+			lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+			lex.emit(paramsType)
+		}
+
+		if found := lex.acceptExact(curlyOpen); !found {
+			lex.emitError("No body given for catch")
+			return nil
+		}
+		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.emit(codeBlockType)
+
+		if found := lex.acceptKeyword(finallyKeyword); !found {
+			return lastLex
+		}
+		lex.emit(keywordType)
+
+		if found := lex.acceptExact(curlyOpen); !found {
+			lex.emitError("No body given for finally")
+			return nil
+		}
+		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.emit(codeBlockType)
+
+		return lastLex
+	}
+}
+
+// lexClass will tokenize a javascript class, starting after the keyword
+func lexClass(lastLex lexFn) lexFn {
+	return func(lex *lexer) lexFn {
+		if found := lex.acceptVarName(); found {
+			lex.emit(varNameType)
+		}
+
+		if found := lex.acceptKeyword(extendsKeyword); found {
+			lex.emit(keywordType)
+
+			if found := lex.acceptVarName(); !found {
+				lex.emitError("No super class given")
+			}
+			lex.emit(varNameType)
+		}
+
+		if found := lex.acceptExact(curlyOpen); !found {
+			lex.emitError("No body given for class")
+			return nil
+		}
+		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.emit(codeBlockType)
+
+		return lastLex
+	}
+}

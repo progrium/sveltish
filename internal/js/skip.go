@@ -1,22 +1,5 @@
 package js
 
-const (
-	lineCommentOpen    = "//"
-	blockCommentOpen   = "/*"
-	blockCommentClose  = "*/"
-	parenOpen          = "("
-	parenClose         = ")"
-	curlyOpen          = "{"
-	curlyClose         = "}"
-	quoteEscape        = `\`
-	singleQuote        = "'"
-	doubleQuote        = `"`
-	tmplQuote          = "`"
-	tmplQuoteExprOpen  = "${"
-	tmplQuoteExprClose = "}"
-	regexQuote         = `/`
-)
-
 type skipper interface {
 	isOpen() bool
 	next(b byte)
