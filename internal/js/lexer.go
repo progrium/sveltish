@@ -54,7 +54,6 @@ const (
 	eqOpType
 	simiOpType
 	paramsType
-	exprType
 	codeBlockType
 	errorType
 )
@@ -75,8 +74,6 @@ func (tt tokenType) String() string {
 		return "simiOp"
 	case paramsType:
 		return "params"
-	case exprType:
-		return "expr"
 	case codeBlockType:
 		return "codeBlock"
 	case errorType:
@@ -482,7 +479,7 @@ func lexVar(lastLex lexFn) lexFn {
 		lex.emit(eqOpType)
 
 		lex.acceptExpr()
-		lex.emit(exprType)
+		lex.emit(codeBlockType)
 		if lex.acceptExact(simiOp) {
 			lex.emit(simiOpType)
 		}
@@ -526,7 +523,7 @@ func lexIfStmt(lastLex lexFn) lexFn {
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptExpr()
-			lex.emit(exprType)
+			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
 			}
@@ -553,7 +550,7 @@ func lexIfStmt(lastLex lexFn) lexFn {
 				lex.emit(codeBlockType)
 			} else {
 				lex.acceptExpr()
-				lex.emit(exprType)
+				lex.emit(codeBlockType)
 				if lex.acceptExact(simiOp) {
 					lex.emit(simiOpType)
 				}
@@ -577,7 +574,7 @@ func lexCtrlStruct(lastLex lexFn) lexFn {
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptExpr()
-			lex.emit(exprType)
+			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
 			}
@@ -595,7 +592,7 @@ func lexDoWhile(lastLex lexFn) lexFn {
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptExpr()
-			lex.emit(exprType)
+			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
 			}

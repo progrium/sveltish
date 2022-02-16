@@ -104,7 +104,7 @@ func TestLexer(t *testing.T) {
 				{keywordType, []byte("const")},
 				{varNameType, []byte(" test")},
 				{eqOpType, []byte(" =")},
-				{exprType, []byte(" 'test'")},
+				{codeBlockType, []byte(" 'test'")},
 				{simiOpType, []byte(";")},
 				{eofType, nil},
 			},
@@ -116,7 +116,7 @@ func TestLexer(t *testing.T) {
 				{keywordType, []byte("const")},
 				{varNameType, []byte(" test")},
 				{eqOpType, []byte(" =")},
-				{exprType, []byte(" func(() => `some ${quote}`)")},
+				{codeBlockType, []byte(" func(() => `some ${quote}`)")},
 				{simiOpType, []byte(";")},
 				{eofType, nil},
 			},
@@ -128,7 +128,7 @@ func TestLexer(t *testing.T) {
 				{keywordType, []byte("const")},
 				{varNameType, []byte(" test")},
 				{eqOpType, []byte(" =")},
-				{exprType, []byte(" obj.method(() => `some ${quote}`)")},
+				{codeBlockType, []byte(" obj.method(() => `some ${quote}`)")},
 				{simiOpType, []byte(";")},
 				{eofType, nil},
 			},
@@ -149,7 +149,7 @@ func TestLexer(t *testing.T) {
 				{varNameType, []byte(" test")},
 				{eqOpType, []byte(" =")},
 				{
-					exprType,
+					codeBlockType,
 					[]byte(
 						` func(() => {
 				// Some comment
@@ -220,7 +220,7 @@ let test;`,
 			[]lexerItem{
 				{keywordType, []byte("if")},
 				{paramsType, []byte(" (a == b)")},
-				{exprType, []byte(" return c")},
+				{codeBlockType, []byte(" return c")},
 				{simiOpType, []byte(";")},
 				{eofType, nil},
 			},
@@ -311,7 +311,7 @@ let test;`,
 			[]lexerItem{
 				{keywordType, []byte("for")},
 				{paramsType, []byte(" (int i=0; i<a.length; i++)")},
-				{exprType, []byte(" b[i] = a[i]")},
+				{codeBlockType, []byte(" b[i] = a[i]")},
 				{simiOpType, []byte(";")},
 				{eofType, nil},
 			},
@@ -517,7 +517,7 @@ let test;`,
 				{keywordType, []byte("\t\t\t\tlet")},
 				{varNameType, []byte(" value")},
 				{eqOpType, []byte(" =")},
-				{exprType, []byte(
+				{codeBlockType, []byte(
 					` func({
 					method() {
 						anotherFunc();

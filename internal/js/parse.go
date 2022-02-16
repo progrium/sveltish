@@ -104,7 +104,7 @@ func (n *VarNode) parse(lex *lexer) error {
 	n.equals = data
 
 	tt, data = ncLex.Next()
-	if tt != exprType {
+	if tt != codeBlockType {
 		return errors.New("Variable with '=' sign not given a value")
 	}
 	n.value = &BlockNode{}
