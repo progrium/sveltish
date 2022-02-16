@@ -3,13 +3,15 @@ package sveltish
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/progrium/sveltish/internal/html"
+	"github.com/progrium/sveltish/internal/js"
 )
 
 type Component struct {
 	Name string
-	JS   []*html.LeafElNode
+	JS   *js.Script
 	CSS  []*html.LeafElNode
 	HTML []*NodeVar
 }
@@ -17,7 +19,7 @@ type Component struct {
 func NewComponent(name string, doc *html.Doc) (*Component, error) {
 	c := &Component{
 		Name: name,
-		JS:   []*html.LeafElNode{},
+		JS:   nil,
 		CSS:  []*html.LeafElNode{},
 		HTML: []*NodeVar{},
 	}
@@ -30,7 +32,15 @@ func NewComponent(name string, doc *html.Doc) (*Component, error) {
 			if ln, ok := n.(*html.LeafElNode); ok {
 				switch ln.Tag() {
 				case "script":
-					c.JS = append(c.JS, ln)
+					if c.JS != nil {
+						return false, errors.New("More than one <script /> element found")
+					}
+
+					script, err := js.Parse(strings.NewReader(ln.Content()))
+					if err != nil {
+						return false, err
+					}
+					c.JS = script
 					return false, nil
 				case "style":
 					c.CSS = append(c.CSS, ln)
