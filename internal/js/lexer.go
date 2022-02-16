@@ -2,53 +2,10 @@ package js
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"unicode"
-	//"fmt"
-	//"github.com/davecgh/go-spew/spew"
 )
-
-// tokenType identifies the type of lex items.
-type tokenType int
-
-const (
-	eofType     tokenType = -1
-	commentType tokenType = iota
-	keywordType
-	exprType
-	varNameType
-	eqOpType
-	simiOpType
-	paramsType
-	codeBlockType
-	errorType
-)
-
-func (tt tokenType) String() string {
-	switch tt {
-	case eofType:
-		return "eof"
-	case commentType:
-		return "comment"
-	case keywordType:
-		return "keywordType"
-	case exprType:
-		return "expr"
-	case varNameType:
-		return "varName"
-	case eqOpType:
-		return "eqOp"
-	case simiOpType:
-		return "simiOp"
-	case paramsType:
-		return "params"
-	case codeBlockType:
-		return "codeBlock"
-	case errorType:
-		return "error"
-	}
-
-	return "Unkown token type"
-}
 
 const (
 	lineCommentOpen    = "//"
@@ -86,12 +43,47 @@ const (
 	newLine            = "\n"
 )
 
-// lexer holds the state of the scanner.
-type lexer struct {
-	data     []byte
-	startPos int
-	nextPos  int
-	items    chan lexerItem
+// tokenType identifies the type of lex items.
+type tokenType int
+
+const (
+	eofType     tokenType = -1
+	commentType tokenType = iota
+	keywordType
+	varNameType
+	eqOpType
+	simiOpType
+	paramsType
+	exprType
+	codeBlockType
+	errorType
+)
+
+func (tt tokenType) String() string {
+	switch tt {
+	case eofType:
+		return "eof"
+	case commentType:
+		return "comment"
+	case keywordType:
+		return "keyword"
+	case varNameType:
+		return "varName"
+	case eqOpType:
+		return "eqOp"
+	case simiOpType:
+		return "simiOp"
+	case paramsType:
+		return "params"
+	case exprType:
+		return "expr"
+	case codeBlockType:
+		return "codeBlock"
+	case errorType:
+		return "error"
+	}
+
+	return "Unkown token type"
 }
 
 type lexerItem struct {
@@ -99,54 +91,89 @@ type lexerItem struct {
 	data []byte
 }
 
+// lexer is the api for the codeLexer.
+type lexer struct {
+	lex   *codeLexer
+	stack []lexerItem
+	err   error
+}
+
 // startNewLexer creates and starts a new lexer.
-func startNewLexer(data []byte) *lexer {
-	lex := &lexer{
+func startNewLexer(src io.Reader) (*lexer, error) {
+	data, err := io.ReadAll(src)
+	if err != nil {
+		return nil, err
+	}
+
+	lex := &codeLexer{
 		data:     data,
 		startPos: 0,
 		nextPos:  0,
 		items:    make(chan lexerItem),
 	}
+	go lex.run()
 
-	go func() {
-		lex.acceptSpaces()
-		if lex.acceptComment() {
-			lex.emit(commentType)
-			lex.acceptSpaces()
-		}
-
-		for fn := lexRoot(); fn != nil; {
-			fn = fn(lex)
-		}
-		close(lex.items)
-	}()
-
-	return lex
+	return &lexer{
+		lex:   lex,
+		stack: []lexerItem{},
+		err:   nil,
+	}, nil
 }
 
-// next returns the next token from the lexer
-func (lex *lexer) next() (tokenType, []byte) {
-	item, ok := <-lex.items
+// Next returns the next token from the lexer.
+func (lex *lexer) Next() (tokenType, []byte) {
+	if stackSize := len(lex.stack); stackSize != 0 {
+		item := lex.stack[stackSize-1]
+		lex.stack = lex.stack[:stackSize-1]
+
+		return item.tt, item.data
+	}
+
+	item, ok := <-lex.lex.items
 	if !ok {
 		return eofType, nil
+	}
+	if item.tt == errorType {
+		lex.err = errors.New(string(item.data))
 	}
 
 	return item.tt, item.data
 }
 
-/*func (lex *lexer) String() string {
-	return fmt.Sprintf(
-		"start=%d next=%d [%q:%q:%q]",
-		lex.startPos,
-		lex.nextPos,
-		lex.data[:lex.startPos],
-		lex.data[lex.startPos:lex.nextPos],
-		lex.data[lex.nextPos:]
-	)
-}*/
+// Err returns the error returned from the lexer.
+func (lex *lexer) Err() error {
+	return lex.err
+}
+
+// rewind will re add the given output back to the lexer.
+func (lex *lexer) rewind(tt tokenType, data []byte) {
+	lex.stack = append(lex.stack, lexerItem{tt, data})
+}
+
+// codeLexer holds the state of the scanner.
+type codeLexer struct {
+	data     []byte
+	startPos int
+	nextPos  int
+	items    chan lexerItem
+}
+
+// run starts the lexers output (expected to be in its own goroutine)
+func (lex *codeLexer) run() {
+	lex.acceptSpaces()
+	if lex.acceptComment() {
+		lex.emit(commentType)
+		lex.acceptSpaces()
+	}
+
+	for fn := lexRoot(); fn != nil; {
+		fn = fn(lex)
+	}
+	close(lex.items)
+}
 
 // emit passes the item for next to return.
-func (lex *lexer) emit(tt tokenType) {
+func (lex *codeLexer) emit(tt tokenType) {
 	lex.items <- lexerItem{
 		tt:   tt,
 		data: lex.data[lex.startPos:lex.nextPos],
@@ -161,7 +188,7 @@ func (lex *lexer) emit(tt tokenType) {
 }
 
 // emitError passes an error for next to return.
-func (lex *lexer) emitError(message string) {
+func (lex *codeLexer) emitError(message string) {
 	lex.items <- lexerItem{
 		tt:   errorType,
 		data: []byte(message),
@@ -169,7 +196,7 @@ func (lex *lexer) emitError(message string) {
 }
 
 // pop will get the next byte from data.
-func (lex *lexer) pop() (byte, bool) {
+func (lex *codeLexer) pop() (byte, bool) {
 	if lex.atEnd() {
 		return 0, false
 	}
@@ -180,7 +207,7 @@ func (lex *lexer) pop() (byte, bool) {
 }
 
 // peek will get but not consume the next byte from data.
-func (lex *lexer) peek() (byte, bool) {
+func (lex *codeLexer) peek() (byte, bool) {
 	c, ok := lex.pop()
 	if !ok {
 		return 0, false
@@ -191,17 +218,17 @@ func (lex *lexer) peek() (byte, bool) {
 }
 
 // backup go back one byte in the data.
-func (lex *lexer) backup() {
+func (lex *codeLexer) backup() {
 	lex.movePos(-1)
 }
 
 // atEnd check if lexer is at the end of the data
-func (lex *lexer) atEnd() bool {
+func (lex *codeLexer) atEnd() bool {
 	return lex.nextPos == len(lex.data)
 }
 
 // movePos will move the lexer by the given value
-func (lex *lexer) movePos(by int) {
+func (lex *codeLexer) movePos(by int) {
 	if lex.nextPos+by < lex.startPos {
 		panic("Trying to move currPos before start data")
 	}
@@ -213,7 +240,7 @@ func (lex *lexer) movePos(by int) {
 }
 
 // acceptSpaces will add the string of spaces to the current lex token.
-func (lex *lexer) acceptSpaces() bool {
+func (lex *codeLexer) acceptSpaces() bool {
 	c, ok := lex.pop()
 	if !ok {
 		return false
@@ -234,7 +261,7 @@ func (lex *lexer) acceptSpaces() bool {
 }
 
 // acceptComment will add a valid comment to the current lex token
-func (lex *lexer) acceptComment() bool {
+func (lex *codeLexer) acceptComment() bool {
 	switch {
 	case lex.acceptExact(lineCommentOpen):
 		lex.skip(newCommentSkipper(lineCommentOpen, newLine))
@@ -248,7 +275,7 @@ func (lex *lexer) acceptComment() bool {
 }
 
 // acceptExact will add the exact val to the current lex token, if it is next.
-func (lex *lexer) acceptExact(val string) bool {
+func (lex *codeLexer) acceptExact(val string) bool {
 	if val == "" {
 		return false
 	}
@@ -263,7 +290,7 @@ func (lex *lexer) acceptExact(val string) bool {
 }
 
 // acceptVarName will add the given keyword to the current lex token
-func (lex *lexer) acceptKeyword(kw string) bool {
+func (lex *codeLexer) acceptKeyword(kw string) bool {
 	if found := lex.acceptExact(kw); !found {
 		return false
 	}
@@ -289,7 +316,7 @@ const (
 )
 
 // acceptVarName will add a valid variable name to the current lex token
-func (lex *lexer) acceptVarName() bool {
+func (lex *codeLexer) acceptVarName() bool {
 	c, ok := lex.pop()
 	if !ok {
 		return false
@@ -313,7 +340,7 @@ func (lex *lexer) acceptVarName() bool {
 }
 
 // acceptExpr will add a everything until an expr end to the current lex token, i.e. it always return true
-func (lex *lexer) acceptExpr() bool {
+func (lex *codeLexer) acceptExpr() bool {
 	for {
 		lex.acceptSpaces()
 		lex.acceptComment()
@@ -339,7 +366,7 @@ func (lex *lexer) acceptExpr() bool {
 }
 
 // acceptEndOfExpr will add a valid expr end to the current lex token, simiOp will not be accepted (just checked for)
-func (lex *lexer) acceptEndOfExpr() bool {
+func (lex *codeLexer) acceptEndOfExpr() bool {
 	c, ok := lex.peek()
 	if !ok {
 		return true
@@ -356,7 +383,7 @@ func (lex *lexer) acceptEndOfExpr() bool {
 }
 
 // skip will use a skipper to ignore code that does not need lexed
-func (lex *lexer) skip(skpr skipper) {
+func (lex *codeLexer) skip(skpr skipper) {
 	for skpr.isOpen() {
 		c, ok := lex.pop()
 		if !ok {
@@ -369,11 +396,11 @@ func (lex *lexer) skip(skpr skipper) {
 
 // The lexerFuncs are used to lex a sepific part of the js and returns
 // another lexerFunc that can lex the next part
-type lexFn func(*lexer) lexFn
+type lexFn func(*codeLexer) lexFn
 
 // lexRoot will tokenize the root javascript scope
 func lexRoot() lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if lex.atEnd() {
 			return nil
 		}
@@ -386,7 +413,7 @@ func lexRoot() lexFn {
 // lexBlock will tokenize a javascript block
 func lexBlock(closeType tokenType, close string, lastLex lexFn) lexFn {
 	var lexBlockFn lexFn
-	lexBlockFn = func(lex *lexer) lexFn {
+	lexBlockFn = func(lex *codeLexer) lexFn {
 		lex.acceptSpaces()
 
 		switch {
@@ -437,7 +464,7 @@ func lexBlock(closeType tokenType, close string, lastLex lexFn) lexFn {
 
 // lexVar will tokenize a javascript variable defintion, starting after the keyword
 func lexVar(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		//TODO allow destructuring
 		if found := lex.acceptVarName(); !found {
 			lex.emitError("No variable name found")
@@ -465,7 +492,7 @@ func lexVar(lastLex lexFn) lexFn {
 
 // lexFunction will tokenize a javascript function defintion, starting after the keyword
 func lexFunction(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptVarName(); found {
 			lex.emit(varNameType)
 		}
@@ -487,7 +514,7 @@ func lexFunction(lastLex lexFn) lexFn {
 
 // lexIfStmt will tokenize a javascript if/else control structures, starting after the keyword
 func lexIfStmt(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptExact(parenOpen); !found {
 			lex.emitError("No params given for if stmt")
 		}
@@ -537,7 +564,7 @@ func lexIfStmt(lastLex lexFn) lexFn {
 
 // lexCtrlStruct will tokenize a javascript while/for/switch/with control structures, starting after the keyword
 func lexCtrlStruct(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptExact(parenOpen); !found {
 			lex.emitError("No params given for control structure")
 		}
@@ -562,7 +589,7 @@ func lexCtrlStruct(lastLex lexFn) lexFn {
 
 // lexDoWhile will tokenize a javascript do while control structures, starting after the keyword
 func lexDoWhile(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptExact(curlyOpen); found {
 			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
 			lex.emit(codeBlockType)
@@ -599,7 +626,7 @@ func lexDoWhile(lastLex lexFn) lexFn {
 
 // lexTryCatch will tokenize a javascript try catch control structures, starting after the keyword
 func lexTryCatch(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptExact(curlyOpen); !found {
 			lex.emitError("No body given for try")
 			return nil
@@ -643,7 +670,7 @@ func lexTryCatch(lastLex lexFn) lexFn {
 
 // lexClass will tokenize a javascript class, starting after the keyword
 func lexClass(lastLex lexFn) lexFn {
-	return func(lex *lexer) lexFn {
+	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptVarName(); found {
 			lex.emit(varNameType)
 		}

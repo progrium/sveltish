@@ -569,11 +569,11 @@ let test;`,
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			lex := startNewLexer(td.input)
+			lex, _ := startNewLexer(bytes.NewReader(td.input))
 
 			t.Logf("Testing:\n%s\n", string(td.input))
 			for _, opItem := range td.output {
-				tt, data := lex.next()
+				tt, data := lex.Next()
 				t.Logf("Item: %q with data %q", tt, data)
 
 				if tt != opItem.tt {
@@ -586,7 +586,7 @@ let test;`,
 			}
 
 			extra := 0
-			for tt, data := lex.next(); tt != eofType; {
+			for tt, data := lex.Next(); tt != eofType; {
 				t.Logf("Extra item: %q with data %q", tt, data)
 
 				extra += 1
