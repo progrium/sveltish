@@ -92,8 +92,8 @@ func GenerateJS(c *Component) ([]byte, error) {
 		})
 	})
 	s.Line("")
-	for _, jsEl := range c.JS {
-		s.Line(jsEl.Content())
+	if c.JS != nil {
+		s.Line(c.JS.Js())
 	}
 	s.Line("")
 	s.Stmt("class", c.Name, "extends SvelteComponent", func(s *js.Source) {
