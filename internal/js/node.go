@@ -3,9 +3,6 @@ package js
 import (
 	"strings"
 	"unicode"
-
-	//"fmt"
-	"github.com/davecgh/go-spew/spew"
 )
 
 // All node types implement the Node interface.
@@ -175,7 +172,6 @@ type IfNode struct {
 }
 
 func (n *IfNode) Js() string {
-	spew.Dump(n)
 	if len(n.elseKeyword) == 0 {
 		return n.comments.injectBetween(
 			string(n.ifKeyword),
