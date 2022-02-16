@@ -89,6 +89,14 @@ func TestParseAndPrint(t *testing.T) {
 				finalFunc()
 			}`,
 		)},
+		{"RootExpr", []byte(
+			`some.func({
+				param: 'name',
+				method() {
+					reutnr 'value';
+				}
+			});`,
+		)},
 	}
 
 	for _, td := range testData {

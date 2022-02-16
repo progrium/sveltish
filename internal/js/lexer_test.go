@@ -485,6 +485,29 @@ let test;`,
 			},
 		},
 		{
+			"RootExpr",
+			[]byte(
+				`some.func({
+					param: 'name',
+					method() {
+						return 'value';
+					}
+				});`,
+			),
+			[]lexerItem{
+				{codeBlockType, []byte(
+					`some.func({
+					param: 'name',
+					method() {
+						return 'value';
+					}
+				})`,
+				)},
+				{simiOpType, []byte(";")},
+				{eofType, nil},
+			},
+		},
+		{
 			"ManyStatments",
 			[]byte(`
 				// Some header comment

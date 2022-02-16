@@ -163,7 +163,7 @@ func (lex *codeLexer) run() {
 		lex.acceptSpaces()
 	}
 
-	for fn := lexRoot(); fn != nil; {
+	for fn := lexRoot(nil); fn != nil; {
 		fn = fn(lex)
 	}
 	close(lex.items)
@@ -336,11 +336,9 @@ func (lex *codeLexer) acceptVarName() bool {
 	}
 }
 
-// acceptExpr will add a everything until an expr end to the current lex token, i.e. it always return true
-func (lex *codeLexer) acceptExpr() bool {
+// acceptCodeBlock will add a everything until an expr end to the current lex token, i.e. it always return true
+func (lex *codeLexer) acceptCodeBlock() bool {
 	for {
-		lex.acceptSpaces()
-		lex.acceptComment()
 		switch {
 		case lex.acceptEndOfExpr():
 			return true
@@ -396,67 +394,43 @@ func (lex *codeLexer) skip(skpr skipper) {
 type lexFn func(*codeLexer) lexFn
 
 // lexRoot will tokenize the root javascript scope
-func lexRoot() lexFn {
-	return func(lex *codeLexer) lexFn {
-		if lex.atEnd() {
-			return nil
-		}
-
-		lexBlockFn := lexBlock(eofType, "", lexRoot())
-		return lexBlockFn(lex)
-	}
-}
-
-// lexBlock will tokenize a javascript block
-func lexBlock(closeType tokenType, close string, lastLex lexFn) lexFn {
-	var lexBlockFn lexFn
-	lexBlockFn = func(lex *codeLexer) lexFn {
-		lex.acceptSpaces()
-
+func lexRoot(lastLex lexFn) lexFn {
+	var lexRootFn lexFn
+	lexRootFn = func(lex *codeLexer) lexFn {
 		switch {
 		case lex.atEnd():
-			if closeType != eofType && closeType != simiOpType {
-				lex.emitError("Code block not closed")
-				return nil
-			}
-
 			return lastLex
+		case lex.acceptExact(simiOp):
+			lex.emit(simiOpType)
+			return lexRootFn
 		case lex.acceptKeyword(varKeyword), lex.acceptKeyword(letKeyword), lex.acceptKeyword(constKeyword):
 			lex.emit(keywordType)
-			return lexVar(lexBlockFn)
+			return lexVar(lexRootFn)
 		case lex.acceptKeyword(funcKeyword):
 			lex.emit(keywordType)
-			return lexFunction(lexBlockFn)
+			return lexFunction(lexRootFn)
 		case lex.acceptKeyword(ifKeyword):
 			lex.emit(keywordType)
-			return lexIfStmt(lexBlockFn)
+			return lexIfStmt(lexRootFn)
 		case lex.acceptKeyword(forKeyword), lex.acceptKeyword(whileKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(withKeyword):
 			lex.emit(keywordType)
-			return lexCtrlStruct(lexBlockFn)
+			return lexCtrlStruct(lexRootFn)
 		case lex.acceptExact(doKeyword):
 			lex.emit(keywordType)
-			return lexDoWhile(lexBlockFn)
+			return lexDoWhile(lexRootFn)
 		case lex.acceptExact(tryKeyword):
 			lex.emit(keywordType)
-			return lexTryCatch(lexBlockFn)
+			return lexTryCatch(lexRootFn)
 		case lex.acceptExact(classKeyword):
 			lex.emit(keywordType)
-			return lexClass(lexBlockFn)
+			return lexClass(lexRootFn)
 		}
 
-		if lex.acceptExact(close) {
-			lex.emit(closeType)
-			return lastLex
-		}
-		if closeType == simiOpType {
-			if c, ok := lex.peek(); !ok || c == '\n' {
-				return lastLex
-			}
-		}
-
-		return lexBlockFn
+		lex.acceptCodeBlock()
+		lex.emit(codeBlockType)
+		return lexRootFn
 	}
-	return lexBlockFn
+	return lexRootFn
 }
 
 // lexVar will tokenize a javascript variable defintion, starting after the keyword
@@ -478,7 +452,7 @@ func lexVar(lastLex lexFn) lexFn {
 		}
 		lex.emit(eqOpType)
 
-		lex.acceptExpr()
+		lex.acceptCodeBlock()
 		lex.emit(codeBlockType)
 		if lex.acceptExact(simiOp) {
 			lex.emit(simiOpType)
@@ -522,7 +496,7 @@ func lexIfStmt(lastLex lexFn) lexFn {
 			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
 			lex.emit(codeBlockType)
 		} else {
-			lex.acceptExpr()
+			lex.acceptCodeBlock()
 			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
@@ -549,7 +523,7 @@ func lexIfStmt(lastLex lexFn) lexFn {
 				lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
 				lex.emit(codeBlockType)
 			} else {
-				lex.acceptExpr()
+				lex.acceptCodeBlock()
 				lex.emit(codeBlockType)
 				if lex.acceptExact(simiOp) {
 					lex.emit(simiOpType)
@@ -573,7 +547,7 @@ func lexCtrlStruct(lastLex lexFn) lexFn {
 			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
 			lex.emit(codeBlockType)
 		} else {
-			lex.acceptExpr()
+			lex.acceptCodeBlock()
 			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
@@ -591,7 +565,7 @@ func lexDoWhile(lastLex lexFn) lexFn {
 			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
 			lex.emit(codeBlockType)
 		} else {
-			lex.acceptExpr()
+			lex.acceptCodeBlock()
 			lex.emit(codeBlockType)
 			if lex.acceptExact(simiOp) {
 				lex.emit(simiOpType)
