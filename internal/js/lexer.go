@@ -694,3 +694,30 @@ func lexClass(lastLex lexFn) lexFn {
 		return lastLex
 	}
 }
+
+// The noCommentLexer parses and stores comments instead of emitting them.
+type noCommentLexer struct {
+	lex      *lexer
+	comments *childComments
+}
+
+func (lex *noCommentLexer) Next() (tokenType, []byte) {
+	tt, data := lex.lex.Next()
+	if tt == commentType {
+		lex.lex.rewind(tt, data)
+		node := &CommentNode{}
+		node.parse(lex.lex)
+		lex.comments.appendChild(node)
+
+		tt, data = lex.lex.Next()
+	} else {
+		lex.comments.appendNil()
+	}
+
+	return tt, data
+}
+
+func (lex *noCommentLexer) rewind(tt tokenType, data []byte) {
+	lex.comments.pop()
+	lex.lex.rewind(tt, data)
+}
