@@ -23,6 +23,14 @@ func newGroupSkipper(open, close byte) *groupSkipper {
 	}
 }
 
+func newCurlyGroupSkipper() *groupSkipper {
+	return newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0]))
+}
+
+func newParenGroupSkipper() *groupSkipper {
+	return newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0]))
+}
+
 func (gt *groupSkipper) isOpen() bool {
 	return gt.count != 0
 }
@@ -82,6 +90,22 @@ func newQuoteSkipper(quote byte) *quoteSkipper {
 	}
 }
 
+func newSingleQuoteSkipper() *quoteSkipper {
+	return newQuoteSkipper(byte(singleQuote[0]))
+}
+
+func newDoubleQuoteSkipper() *quoteSkipper {
+	return newQuoteSkipper(byte(doubleQuote[0]))
+}
+
+func newTmplQuoteSkipper() *quoteSkipper {
+	return newQuoteSkipper(byte(tmplQuote[0]))
+}
+
+func newRegexQuoteSkipper() *quoteSkipper {
+	return newQuoteSkipper(byte(regexQuote[0]))
+}
+
 func (qt *quoteSkipper) isOpen() bool {
 	return qt.open
 }
@@ -137,6 +161,14 @@ func newCommentSkipper(open, close string) *commentSkipper {
 		close: close,
 		last:  byte(open[len(open)-1]),
 	}
+}
+
+func newBlockCommentSkipper() *commentSkipper {
+	return newCommentSkipper(lineCommentOpen, newLine)
+}
+
+func newLineCommentSkipper() *commentSkipper {
+	return newCommentSkipper(blockCommentOpen, blockCommentClose)
 }
 
 func (ct *commentSkipper) isOpen() bool {
