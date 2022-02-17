@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestLexer(t *testing.T) {
+func TestScriptLexer(t *testing.T) {
 	testData := []struct {
 		name   string
 		input  []byte
@@ -592,7 +592,7 @@ let test;`,
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			lex, _ := startNewLexer(bytes.NewReader(td.input))
+			lex, _ := startNewLexer(lexScript, td.input)
 
 			t.Logf("Testing:\n%s\n", string(td.input))
 			for _, opItem := range td.output {

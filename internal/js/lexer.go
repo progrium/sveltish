@@ -3,7 +3,6 @@ package js
 import (
 	"bytes"
 	"errors"
-	"io"
 	"unicode"
 )
 
@@ -96,19 +95,14 @@ type lexer struct {
 }
 
 // startNewLexer creates and starts a new lexer.
-func startNewLexer(src io.Reader) (*lexer, error) {
-	data, err := io.ReadAll(src)
-	if err != nil {
-		return nil, err
-	}
-
+func startNewLexer(initLex func(lexFn) lexFn, data []byte) (*lexer, error) {
 	lex := &codeLexer{
 		data:     data,
 		startPos: 0,
 		nextPos:  0,
 		items:    make(chan lexerItem),
 	}
-	go lex.run()
+	go lex.run(initLex)
 
 	return &lexer{
 		lex:   lex,
@@ -156,14 +150,14 @@ type codeLexer struct {
 }
 
 // run starts the lexers output (expected to be in its own goroutine)
-func (lex *codeLexer) run() {
+func (lex *codeLexer) run(initLex func(lexFn) lexFn) {
 	lex.acceptSpaces()
 	if lex.acceptComment() {
 		lex.emit(commentType)
 		lex.acceptSpaces()
 	}
 
-	for fn := lexRoot(nil); fn != nil; {
+	for fn := initLex(nil); fn != nil; {
 		fn = fn(lex)
 	}
 	close(lex.items)
@@ -393,8 +387,8 @@ func (lex *codeLexer) skip(skpr skipper) {
 // another lexerFunc that can lex the next part
 type lexFn func(*codeLexer) lexFn
 
-// lexRoot will tokenize the root javascript scope
-func lexRoot(lastLex lexFn) lexFn {
+// lexScript will tokenize the root javascript scope
+func lexScript(lastLex lexFn) lexFn {
 	var lexRootFn lexFn
 	lexRootFn = func(lex *codeLexer) lexFn {
 		switch {
