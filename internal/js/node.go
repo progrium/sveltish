@@ -10,6 +10,18 @@ type Node interface {
 	Js() string
 }
 
+// All node types that set a variable name implement the Var interface.
+type Var interface {
+	// Node //TODO, check if needed
+	VarType() string
+	VarName() (string, bool)
+}
+
+type wrapFunc func(Var) (string, string)
+type wrapAssignmenter interface {
+	wrapAssignments(map[string]Var, wrapFunc)
+}
+
 // A Script node represents a full js script tag.
 type Script struct {
 	roots []Node
@@ -21,6 +33,39 @@ func (n *Script) Js() string {
 		js += n.Js()
 	}
 	return js
+}
+
+func (n *Script) WrapAssignments(wrap wrapFunc) {
+	vars := map[string]Var{}
+	for _, r := range n.roots {
+		v, ok := r.(Var)
+		if !ok {
+			continue
+		}
+
+		name, hasName := v.VarName()
+		if !hasName {
+			continue
+		}
+
+		vars[name] = v
+	}
+	if len(vars) == 0 {
+		return
+	}
+
+	n.wrapAssignments(vars, wrap)
+}
+
+func (n *Script) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	for _, r := range n.roots {
+		w, ok := r.(wrapAssignmenter)
+		if !ok {
+			continue
+		}
+
+		w.wrapAssignments(vars, wrap)
+	}
 }
 
 func (n *Script) appendChild(child Node) {
@@ -102,8 +147,24 @@ func (n *VarNode) Js() string {
 	)
 }
 
-func (n *VarNode) VarName() string {
-	return trimLeftSpaces(n.name)
+func (n *VarNode) VarType() string {
+	return trimLeftSpaces(n.keyword)
+}
+
+func (n *VarNode) VarName() (string, bool) {
+	if len(n.name) == 0 {
+		return "", false
+	}
+
+	return trimLeftSpaces(n.name), true
+}
+
+func (n *VarNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	if n.value == nil {
+		return
+	}
+
+	n.value.wrapAssignments(vars, wrap)
 }
 
 // A FuncNode represents a js function.
@@ -124,12 +185,20 @@ func (n *FuncNode) Js() string {
 	)
 }
 
+func (n *FuncNode) VarType() string {
+	return funcKeyword
+}
+
 func (n *FuncNode) VarName() (string, bool) {
 	if len(n.name) == 0 {
 		return "", false
 	}
 
 	return trimLeftSpaces(n.name), true
+}
+
+func (n *FuncNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // A ClassNode represents a js class.
@@ -158,6 +227,10 @@ func (n *ClassNode) VarName() (string, bool) {
 	}
 
 	return trimLeftSpaces(n.name), true
+}
+
+func (n *ClassNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // An IfNode represents a js if/else[if] statement.
@@ -200,6 +273,18 @@ func (n *IfNode) Js() string {
 	return js
 }
 
+func (n *IfNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.ifBody.wrapAssignments(vars, wrap)
+
+	if n.elseBody != nil {
+		n.elseBody.wrapAssignments(vars, wrap)
+	}
+
+	if n.elseIfNode != nil {
+		n.elseIfNode.wrapAssignments(vars, wrap)
+	}
+}
+
 // A basicCtrlStructNode represents basic js controll structures.
 type basicCtrlStructNode struct {
 	keyword  []byte
@@ -214,6 +299,10 @@ func (n *basicCtrlStructNode) Js() string {
 		string(n.params),
 		n.body.Js(),
 	)
+}
+
+func (n *basicCtrlStructNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // A SwitchNode represents a js switch statement.
@@ -256,6 +345,10 @@ func (n *DoWhileLoopNode) Js() string {
 	)
 }
 
+func (n *DoWhileLoopNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
+}
+
 // A TryCatchNode represents a js try catch statement.
 type TryCatchNode struct {
 	tryKeyword     []byte
@@ -290,6 +383,15 @@ func (n *TryCatchNode) Js() string {
 	)
 }
 
+func (n *TryCatchNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	n.tryBody.wrapAssignments(vars, wrap)
+	n.catchBody.wrapAssignments(vars, wrap)
+
+	if n.finallyBody != nil {
+		n.finallyBody.wrapAssignments(vars, wrap)
+	}
+}
+
 // A BlockNode represents a block of js code that is not one of the other node types.
 type BlockNode struct {
 	content []byte
@@ -297,6 +399,11 @@ type BlockNode struct {
 
 func (n *BlockNode) Js() string {
 	return string(n.content)
+}
+
+func (n *BlockNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+	//TODO, create lexer that goes through n.content to look for {varName}[{space}]={codeBlock}
+	panic("NYI")
 }
 
 func trimLeftSpaces(data []byte) string {
