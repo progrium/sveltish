@@ -164,11 +164,11 @@ func newCommentSkipper(open, close string) *commentSkipper {
 }
 
 func newBlockCommentSkipper() *commentSkipper {
-	return newCommentSkipper(lineCommentOpen, newLine)
+	return newCommentSkipper(blockCommentOpen, blockCommentClose)
 }
 
 func newLineCommentSkipper() *commentSkipper {
-	return newCommentSkipper(blockCommentOpen, blockCommentClose)
+	return newCommentSkipper(lineCommentOpen, newLine)
 }
 
 func (ct *commentSkipper) isOpen() bool {

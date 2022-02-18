@@ -255,10 +255,10 @@ func (lex *codeLexer) acceptSpaces() bool {
 func (lex *codeLexer) acceptComment() bool {
 	switch {
 	case lex.acceptExact(lineCommentOpen):
-		lex.skip(newBlockCommentSkipper())
+		lex.skip(newLineCommentSkipper())
 		return true
 	case lex.acceptExact(blockCommentOpen):
-		lex.skip(newLineCommentSkipper())
+		lex.skip(newBlockCommentSkipper())
 		return true
 	}
 
@@ -389,42 +389,42 @@ type lexFn func(*codeLexer) lexFn
 
 // lexScript will tokenize the root javascript scope
 func lexScript(lastLex lexFn) lexFn {
-	var lexRootFn lexFn
-	lexRootFn = func(lex *codeLexer) lexFn {
+	var lexScriptFn lexFn
+	lexScriptFn = func(lex *codeLexer) lexFn {
 		switch {
 		case lex.atEnd():
 			return lastLex
 		case lex.acceptExact(simiOp):
 			lex.emit(simiOpType)
-			return lexRootFn
+			return lexScriptFn
 		case lex.acceptKeyword(varKeyword), lex.acceptKeyword(letKeyword), lex.acceptKeyword(constKeyword):
 			lex.emit(keywordType)
-			return lexVar(lexRootFn)
+			return lexVar(lexScriptFn)
 		case lex.acceptKeyword(funcKeyword):
 			lex.emit(keywordType)
-			return lexFunction(lexRootFn)
+			return lexFunction(lexScriptFn)
 		case lex.acceptKeyword(ifKeyword):
 			lex.emit(keywordType)
-			return lexIfStmt(lexRootFn)
+			return lexIfStmt(lexScriptFn)
 		case lex.acceptKeyword(forKeyword), lex.acceptKeyword(whileKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(withKeyword):
 			lex.emit(keywordType)
-			return lexCtrlStruct(lexRootFn)
+			return lexCtrlStruct(lexScriptFn)
 		case lex.acceptExact(doKeyword):
 			lex.emit(keywordType)
-			return lexDoWhile(lexRootFn)
+			return lexDoWhile(lexScriptFn)
 		case lex.acceptExact(tryKeyword):
 			lex.emit(keywordType)
-			return lexTryCatch(lexRootFn)
+			return lexTryCatch(lexScriptFn)
 		case lex.acceptExact(classKeyword):
 			lex.emit(keywordType)
-			return lexClass(lexRootFn)
+			return lexClass(lexScriptFn)
 		}
 
 		lex.acceptCodeBlock()
 		lex.emit(codeBlockType)
-		return lexRootFn
+		return lexScriptFn
 	}
-	return lexRootFn
+	return lexScriptFn
 }
 
 // lexVar will tokenize a javascript variable defintion, starting after the keyword
