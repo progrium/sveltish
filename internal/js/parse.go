@@ -11,11 +11,7 @@ func Parse(src io.Reader) (*Script, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	lex, err := startNewLexer(lexScript, data)
-	if err != nil {
-		return nil, err
-	}
+	lex := startNewLexer(lexScript, data)
 
 	script := &Script{}
 	if err := script.parse(lex); err != nil {

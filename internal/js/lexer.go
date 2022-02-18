@@ -95,7 +95,7 @@ type lexer struct {
 }
 
 // startNewLexer creates and starts a new lexer.
-func startNewLexer(initLex func(lexFn) lexFn, data []byte) (*lexer, error) {
+func startNewLexer(initLex func(lexFn) lexFn, data []byte) *lexer {
 	lex := &codeLexer{
 		data:     data,
 		startPos: 0,
@@ -108,7 +108,7 @@ func startNewLexer(initLex func(lexFn) lexFn, data []byte) (*lexer, error) {
 		lex:   lex,
 		stack: []lexerItem{},
 		err:   nil,
-	}, nil
+	}
 }
 
 // Next returns the next token from the lexer.
