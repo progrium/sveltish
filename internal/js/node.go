@@ -1,6 +1,7 @@
 package js
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 )
@@ -12,14 +13,18 @@ type Node interface {
 
 // All node types that set a variable name implement the Var interface.
 type Var interface {
-	// Node //TODO, check if needed
+	Node
 	VarType() string
-	VarName() (string, bool)
+	VarNames() []string
 }
 
-type wrapFunc func(Var) (string, string)
+type NamedVar struct {
+	Name string
+	Node Var
+}
+type wrapFunc func(*NamedVar) (string, string)
 type wrapAssignmenter interface {
-	wrapAssignments(map[string]Var, wrapFunc)
+	wrapAssignments([]*NamedVar, wrapFunc)
 }
 
 // A Script node represents a full js script tag.
@@ -35,21 +40,26 @@ func (n *Script) Js() string {
 	return js
 }
 
-func (n *Script) WrapAssignments(wrap wrapFunc) {
-	vars := map[string]Var{}
+func (n *Script) RootVars() []*NamedVar {
+	vars := []*NamedVar{}
 	for _, r := range n.roots {
 		v, ok := r.(Var)
 		if !ok {
 			continue
 		}
 
-		name, hasName := v.VarName()
-		if !hasName {
-			continue
+		for _, name := range v.VarNames() {
+			vars = append(vars, &NamedVar{
+				Name: name,
+				Node: v,
+			})
 		}
-
-		vars[name] = v
 	}
+	return vars
+}
+
+func (n *Script) WrapAssignments(wrap wrapFunc) {
+	vars := n.RootVars()
 	if len(vars) == 0 {
 		return
 	}
@@ -57,7 +67,7 @@ func (n *Script) WrapAssignments(wrap wrapFunc) {
 	n.wrapAssignments(vars, wrap)
 }
 
-func (n *Script) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	for _, r := range n.roots {
 		w, ok := r.(wrapAssignmenter)
 		if !ok {
@@ -151,15 +161,16 @@ func (n *VarNode) VarType() string {
 	return trimLeftSpaces(n.keyword)
 }
 
-func (n *VarNode) VarName() (string, bool) {
+func (n *VarNode) VarNames() []string {
 	if len(n.name) == 0 {
-		return "", false
+		return nil
 	}
 
-	return trimLeftSpaces(n.name), true
+	//TODO, add support for destructuring
+	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *VarNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *VarNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	if n.value == nil {
 		return
 	}
@@ -189,15 +200,15 @@ func (n *FuncNode) VarType() string {
 	return funcKeyword
 }
 
-func (n *FuncNode) VarName() (string, bool) {
+func (n *FuncNode) VarNames() []string {
 	if len(n.name) == 0 {
-		return "", false
+		return nil
 	}
 
-	return trimLeftSpaces(n.name), true
+	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *FuncNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *FuncNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.body.wrapAssignments(vars, wrap)
 }
 
@@ -221,15 +232,15 @@ func (n *ClassNode) Js() string {
 	)
 }
 
-func (n *ClassNode) VarName() (string, bool) {
+func (n *ClassNode) VarNames() []string {
 	if len(n.name) == 0 {
-		return "", false
+		return nil
 	}
 
-	return trimLeftSpaces(n.name), true
+	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *ClassNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *ClassNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.body.wrapAssignments(vars, wrap)
 }
 
@@ -273,7 +284,7 @@ func (n *IfNode) Js() string {
 	return js
 }
 
-func (n *IfNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *IfNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.ifBody.wrapAssignments(vars, wrap)
 
 	if n.elseBody != nil {
@@ -301,7 +312,7 @@ func (n *basicCtrlStructNode) Js() string {
 	)
 }
 
-func (n *basicCtrlStructNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *basicCtrlStructNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.body.wrapAssignments(vars, wrap)
 }
 
@@ -345,7 +356,7 @@ func (n *DoWhileLoopNode) Js() string {
 	)
 }
 
-func (n *DoWhileLoopNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *DoWhileLoopNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.body.wrapAssignments(vars, wrap)
 }
 
@@ -383,7 +394,7 @@ func (n *TryCatchNode) Js() string {
 	)
 }
 
-func (n *TryCatchNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
+func (n *TryCatchNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	n.tryBody.wrapAssignments(vars, wrap)
 	n.catchBody.wrapAssignments(vars, wrap)
 
@@ -401,9 +412,27 @@ func (n *BlockNode) Js() string {
 	return string(n.content)
 }
 
-func (n *BlockNode) wrapAssignments(vars map[string]Var, wrap wrapFunc) {
-	//TODO, create lexer that goes through n.content to look for {varName}[{space}]={codeBlock}
-	panic("NYI")
+func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	lex := startNewLexer(lexAssignments, n.content)
+	n.content = rewriteParser(lex, func(tt tokenType, data []byte) []byte {
+		switch tt {
+		case codeBlockFragmentType:
+			return data
+		case asignType:
+			for _, nv := range vars {
+				if !bytes.HasPrefix(data, []byte(nv.Name)) {
+					continue
+				}
+
+				prefix, sufix := wrap(nv)
+				return append(append([]byte(prefix), data...), []byte(sufix)...)
+			}
+
+			return data
+		default:
+			panic("Invalid token type emiteed from lexBlock")
+		}
+	})
 }
 
 func trimLeftSpaces(data []byte) string {

@@ -93,13 +93,21 @@ func GenerateJS(c *Component) ([]byte, error) {
 	})
 	s.Line("")
 	if c.JS != nil {
-		s.Line(c.JS.Js())
+		s.Func("instance", []string{"$$self", "$$props", "$$invalidate"}, func(s *js.Source) {
+			s.Line(c.JS.Js())
+
+			names := []string{}
+			for _, v := range c.JS.RootVars() {
+				names = append(names, v.Name)
+			}
+			s.Stmt("return [" + strings.Join(names, ", ") + "]")
+		})
 	}
 	s.Line("")
 	s.Stmt("class", c.Name, "extends SvelteComponent", func(s *js.Source) {
 		s.Stmt("constructor(options)", func(s *js.Source) {
 			s.Stmt("super()")
-			s.Stmt("init(this, options, null, create_fragment, safe_not_equal, {})")
+			s.Stmt("init(this, options, instance, create_fragment, safe_not_equal, {})")
 		})
 	})
 	s.Line("")

@@ -296,3 +296,17 @@ func (n *BlockNode) parse(lex *lexer) error {
 	n.content = data
 	return nil
 }
+
+// A rewriteFunc will take lexer tokenType/data and return rewritten version of the data.
+type rewriteFunc func(tokenType, []byte) []byte
+
+// rewriteParser will call the rewriteFunc for everything emited by the lexer, and merge the returned data.
+func rewriteParser(lex *lexer, rw rewriteFunc) []byte {
+	rwData := []byte{}
+	for tt, data := lex.Next(); tt != eofType; {
+		rwData = append(rwData, rw(tt, data)...)
+
+		tt, data = lex.Next()
+	}
+	return rwData
+}
