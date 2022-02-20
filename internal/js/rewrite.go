@@ -2,26 +2,10 @@ package js
 
 import "fmt"
 
-// A rewriteFunc will take lexer tokenType/data and return rewritten version of the data.
-type rewriteFunc func([]byte) []byte
-
-// rewriteParser will call the rewriteFunc for everything emited by the lexer, and merge the returned data.
-func rewriteParser(lex *lexer, rw rewriteFunc) []byte {
-	rwData := []byte{}
-	for tt, data := lex.Next(); tt != eofType; {
-		switch tt {
-		case fragmentType, commentType:
-			rwData = append(rwData, data...)
-		case targetType:
-			rwData = append(rwData, rw(data)...)
-		default:
-			fmt.Println(tt)
-			panic("Invalid token type emited from lexFn for rewriteParser")
-		}
-
-		tt, data = lex.Next()
-	}
-	return rwData
+// RewriteAssignments will replace all assignments with the data returned from the callback.
+func RewriteAssignments(data []byte, rw rewriteFunc) []byte {
+	lex := startNewLexer(lexRewriteAssignments, data)
+	return rewriteParser(lex, rw)
 }
 
 // lexAssignments will tokenize a javascript block (as output by lexScript) to find assignments.
@@ -85,6 +69,12 @@ func lexRewriteAssignments(lastLex lexFn) lexFn {
 	return lexRewriteAssignmentsFunc
 }
 
+// RewriteVarNames will replace all var names with the data returned from the callback.
+func RewriteVarNames(data []byte, rw rewriteFunc) []byte {
+	lex := startNewLexer(lexRewriteVarNames, data)
+	return rewriteParser(lex, rw)
+}
+
 // lexRewriteVarNames will tokenize a javascript block (as output by lexScript) to find variable names (and keywords).
 func lexRewriteVarNames(lastLex lexFn) lexFn {
 	var lexRewriteVarNamesFunc lexFn
@@ -144,4 +134,26 @@ func lexRewriteVarNames(lastLex lexFn) lexFn {
 		return lexRewriteVarNamesFunc
 	}
 	return lexRewriteVarNamesFunc
+}
+
+// A rewriteFunc will take lexer tokenType/data and return rewritten version of the data.
+type rewriteFunc func([]byte) []byte
+
+// rewriteParser will call the rewriteFunc for everything emited by the lexer, and merge the returned data.
+func rewriteParser(lex *lexer, rw rewriteFunc) []byte {
+	rwData := []byte{}
+	for tt, data := lex.Next(); tt != eofType; {
+		switch tt {
+		case fragmentType, commentType:
+			rwData = append(rwData, data...)
+		case targetType:
+			rwData = append(rwData, rw(data)...)
+		default:
+			fmt.Println(tt)
+			panic("Invalid token type emited from lexFn for rewriteParser")
+		}
+
+		tt, data = lex.Next()
+	}
+	return rwData
 }

@@ -70,10 +70,8 @@ func TestLexRewriteAssignment(t *testing.T) {
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			lex := startNewLexer(lexRewriteAssignments, td.input)
-
 			foundTargets := [][]byte{}
-			result := rewriteParser(lex, func(data []byte) []byte {
+			result := RewriteAssignments(td.input, func(data []byte) []byte {
 				foundTargets = append(foundTargets, data)
 
 				return testRewriteValue
@@ -131,10 +129,8 @@ func TestLexRewriteVarNames(t *testing.T) {
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			lex := startNewLexer(lexRewriteVarNames, td.input)
-
 			foundTargets := [][]byte{}
-			result := rewriteParser(lex, func(data []byte) []byte {
+			result := RewriteVarNames(td.input, func(data []byte) []byte {
 				foundTargets = append(foundTargets, data)
 
 				return testRewriteValue

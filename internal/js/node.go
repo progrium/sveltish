@@ -413,8 +413,7 @@ func (n *BlockNode) Js() string {
 }
 
 func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	lex := startNewLexer(lexRewriteAssignments, n.content)
-	n.content = rewriteParser(lex, func(data []byte) []byte {
+	n.content = RewriteAssignments(n.content, func(data []byte) []byte {
 		for i, nv := range vars {
 			if !bytes.HasPrefix(data, []byte(nv.Name)) {
 				continue
