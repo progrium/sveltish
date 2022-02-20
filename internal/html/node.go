@@ -2,6 +2,8 @@ package html
 
 import (
 	"unicode"
+
+	"github.com/progrium/sveltish/internal/js"
 )
 
 // A NodeId will identify individual nodes in a html tree.
@@ -40,7 +42,7 @@ type Contenter interface {
 
 // All types that have javacript content implement the Contenter interface.
 type JsContenter interface {
-	JsContent() string
+	JsContent([]*js.NamedVar, func(int, *js.NamedVar, []byte) []byte) string
 }
 
 // A Doc node represents a full html document.
@@ -150,8 +152,18 @@ func (n *ExprNode) Content() string {
 	return "{" + n.js + "}"
 }
 
-func (n *ExprNode) JsContent() string {
-	return n.js
+func (n *ExprNode) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
+	rwData := js.RewriteVarNames([]byte(n.js), func(data []byte) []byte {
+		for i, v := range vars {
+			if string(data) != v.Name {
+				continue
+			}
+
+			return rw(i, v, data)
+		}
+		return data
+	})
+	return string(rwData)
 }
 
 // IsContentWhiteSpace will check if all the .Content() only contains white

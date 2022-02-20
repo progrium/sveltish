@@ -9,6 +9,8 @@ import (
 )
 
 func GenerateJS(c *Component) ([]byte, error) {
+	rootVars := c.JS.RootVars()
+
 	s := &js.Source{}
 	s.Stmt(`import {
   SvelteComponent,
@@ -28,7 +30,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 		for _, nv := range c.HTML {
 			s.Stmt("let", nv.name)
 			if exn, ok := nv.node.(*html.ExprNode); ok {
-				s.Stmt("let", fmt.Sprintf("%s_value", nv.name), "=", exn.JsContent())
+				s.Stmt("let", fmt.Sprintf("%s_value", nv.name), "=", exn.JsContent(rootVars, replaceWithCtx))
 			}
 			if el, ok := nv.node.(html.Element); ok {
 				for _, attr := range el.Attrs() {
@@ -61,7 +63,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 								"attr",
 								nv.name,
 								"'"+attr.Name()+"'",
-								fmt.Sprintf("%s = %s", generateAttrName(nv.name, attr), attr.JsContent()),
+								fmt.Sprintf("%s = %s", generateAttrName(nv.name, attr), attr.JsContent(rootVars, replaceWithCtx)),
 							))
 						}
 					}
@@ -94,14 +96,15 @@ func GenerateJS(c *Component) ([]byte, error) {
 	s.Line("")
 	if c.JS != nil {
 		s.Func("instance", []string{"$$self", "$$props", "$$invalidate"}, func(s *js.Source) {
-			names := []string{}
-			for _, v := range c.JS.RootVars() {
-				names = append(names, v.Name)
-			}
 			c.JS.WrapAssignments(func(i int, _ *js.NamedVar) (string, string) {
 				return fmt.Sprintf("$$invalidate(%d, ", i), ")"
 			})
 			s.Line(c.JS.Js())
+
+			names := []string{}
+			for _, v := range rootVars {
+				names = append(names, v.Name)
+			}
 			s.Stmt("return [" + strings.Join(names, ", ") + "]")
 		})
 	}
@@ -122,4 +125,8 @@ func generateAttrName(nodeName string, attr html.Attr) string {
 	attrName := strings.ReplaceAll(attr.Name(), "-", "_")
 
 	return fmt.Sprintf("%s_%s_value", nodeName, attrName)
+}
+
+func replaceWithCtx(i int, nv *js.NamedVar, _ []byte) []byte {
+	return []byte(fmt.Sprintf("/* %s */ ctx[%d]", nv.Name, i))
 }
