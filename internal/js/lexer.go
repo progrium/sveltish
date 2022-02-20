@@ -39,6 +39,8 @@ const (
 	extendsKeyword     = "extends"
 	eqOp               = "="
 	simiOp             = ";"
+	dotOp              = "."
+	optnlDotOp         = "?."
 	newLine            = "\n"
 )
 

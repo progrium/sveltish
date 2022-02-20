@@ -85,3 +85,63 @@ func lexRewriteAssignments(lastLex lexFn) lexFn {
 	return lexRewriteAssignmentsFunc
 }
 
+// lexRewriteVarNames will tokenize a javascript block (as output by lexScript) to find variable names (and keywords).
+func lexRewriteVarNames(lastLex lexFn) lexFn {
+	var lexRewriteVarNamesFunc lexFn
+	lexRewriteVarNamesFunc = func(lex *codeLexer) lexFn {
+		acceeptAndEmitVarName := func() bool {
+			currPos := lex.nextPos
+			if !lex.acceptVarName() {
+				return false
+			}
+			varPos := lex.nextPos
+
+			lex.nextPos = currPos
+			lex.emit(fragmentType)
+
+			lex.nextPos = varPos
+			lex.emit(targetType)
+			return true
+		}
+
+		switch {
+		case lex.atEnd():
+			lex.emit(fragmentType)
+			return lastLex
+		case lex.acceptExact(dotOp), lex.acceptExact(optnlDotOp):
+			lex.acceptSpaces()
+			lex.acceptVarName()
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(lineCommentOpen):
+			lex.skip(newLineCommentSkipper(), nil)
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(blockCommentOpen):
+			lex.skip(newBlockCommentSkipper(), nil)
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(singleQuote):
+			lex.skip(newSingleQuoteSkipper(), nil)
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(doubleQuote):
+			lex.skip(newDoubleQuoteSkipper(), nil)
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(tmplQuote):
+			skpr := newTmplQuoteSkipper()
+			lex.skip(skpr, func(_ byte) {
+				switch open, _ := skpr.group(); string(open) {
+				case parenOpen, curlyOpen, tmplQuoteExprOpen:
+					acceeptAndEmitVarName()
+				}
+			})
+			return lexRewriteVarNamesFunc
+		case lex.acceptExact(regexQuote):
+			lex.skip(newRegexQuoteSkipper(), nil)
+			return lexRewriteVarNamesFunc
+		}
+
+		if !acceeptAndEmitVarName() {
+			lex.pop()
+		}
+		return lexRewriteVarNamesFunc
+	}
+	return lexRewriteVarNamesFunc
+}
