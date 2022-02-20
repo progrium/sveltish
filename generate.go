@@ -94,12 +94,14 @@ func GenerateJS(c *Component) ([]byte, error) {
 	s.Line("")
 	if c.JS != nil {
 		s.Func("instance", []string{"$$self", "$$props", "$$invalidate"}, func(s *js.Source) {
-			s.Line(c.JS.Js())
-
 			names := []string{}
 			for _, v := range c.JS.RootVars() {
 				names = append(names, v.Name)
 			}
+			c.JS.WrapAssignments(func(i int, _ *js.NamedVar) (string, string) {
+				return fmt.Sprintf("$$invalidate(%d, ", i), ")"
+			})
+			s.Line(c.JS.Js())
 			s.Stmt("return [" + strings.Join(names, ", ") + "]")
 		})
 	}

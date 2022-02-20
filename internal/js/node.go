@@ -22,7 +22,7 @@ type NamedVar struct {
 	Name string
 	Node Var
 }
-type wrapFunc func(*NamedVar) (string, string)
+type wrapFunc func(int, *NamedVar) (string, string)
 type wrapAssignmenter interface {
 	wrapAssignments([]*NamedVar, wrapFunc)
 }
@@ -69,12 +69,12 @@ func (n *Script) WrapAssignments(wrap wrapFunc) {
 
 func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	for _, r := range n.roots {
-		w, ok := r.(wrapAssignmenter)
-		if !ok {
+		switch n := r.(type) {
+		case *BlockNode:
 			continue
+		case wrapAssignmenter:
+			n.wrapAssignments(vars, wrap)
 		}
-
-		w.wrapAssignments(vars, wrap)
 	}
 }
 
@@ -413,25 +413,17 @@ func (n *BlockNode) Js() string {
 }
 
 func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	lex := startNewLexer(lexAssignments, n.content)
-	n.content = rewriteParser(lex, func(tt tokenType, data []byte) []byte {
-		switch tt {
-		case codeBlockFragmentType:
-			return data
-		case asignType:
-			for _, nv := range vars {
-				if !bytes.HasPrefix(data, []byte(nv.Name)) {
-					continue
-				}
-
-				prefix, sufix := wrap(nv)
-				return append(append([]byte(prefix), data...), []byte(sufix)...)
+	lex := startNewLexer(lexRewriteAssignments, n.content)
+	n.content = rewriteParser(lex, func(data []byte) []byte {
+		for i, nv := range vars {
+			if !bytes.HasPrefix(data, []byte(nv.Name)) {
+				continue
 			}
 
-			return data
-		default:
-			panic("Invalid token type emiteed from lexBlock")
+			prefix, sufix := wrap(i, nv)
+			return append(append([]byte(prefix), data...), []byte(sufix)...)
 		}
+		return data
 	})
 }
 

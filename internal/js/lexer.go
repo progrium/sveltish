@@ -49,9 +49,9 @@ const (
 	// shared types
 	eofType   tokenType = -1
 	errorType tokenType = iota
+	commentType
 
 	// lexScript types
-	commentType
 	keywordType
 	varNameType
 	eqOpType
@@ -59,15 +59,17 @@ const (
 	paramsType
 	codeBlockType
 
-	// lexAssignments types
-	asignType
-	codeBlockFragmentType
+	// rewrite types
+	targetType
+	fragmentType
 )
 
 func (tt tokenType) String() string {
 	switch tt {
 	case eofType:
 		return "eof"
+	case errorType:
+		return "error"
 	case commentType:
 		return "comment"
 	case keywordType:
@@ -82,8 +84,10 @@ func (tt tokenType) String() string {
 		return "params"
 	case codeBlockType:
 		return "codeBlock"
-	case errorType:
-		return "error"
+	case targetType:
+		return "target"
+	case fragmentType:
+		return "fragment"
 	}
 
 	return "Unkown token type"
@@ -669,66 +673,6 @@ func lexClass(lastLex lexFn) lexFn {
 
 		return lastLex
 	}
-}
-
-// lexAssignments will tokenize a javascript block (as output by lexScript) to find assignments.
-func lexAssignments(lastLex lexFn) lexFn {
-	var lexBlockFunc lexFn
-	lexBlockFunc = func(lex *codeLexer) lexFn {
-		acceeptAndEmitAssignment := func() bool {
-			currPos := lex.nextPos
-			if lex.acceptVarName() {
-				lex.acceptSpaces()
-				if lex.acceptExact(eqOp) {
-					lex.acceptCodeBlock()
-					assignPos := lex.nextPos
-
-					lex.nextPos = currPos
-					lex.emit(codeBlockFragmentType)
-
-					lex.nextPos = assignPos
-					lex.emit(asignType)
-					return true
-				}
-			}
-			lex.nextPos = currPos
-			return false
-		}
-
-		var skpr skipper
-		switch {
-		case lex.atEnd():
-			return lastLex
-		case lex.acceptExact(curlyOpen):
-			skpr = newCurlyGroupSkipper()
-		case lex.acceptExact(parenOpen):
-			skpr = newParenGroupSkipper()
-		case lex.acceptExact(singleQuote):
-			skpr = newSingleQuoteSkipper()
-		case lex.acceptExact(doubleQuote):
-			skpr = newDoubleQuoteSkipper()
-		case lex.acceptExact(tmplQuote):
-			skpr = newTmplQuoteSkipper()
-		case lex.acceptExact(regexQuote):
-			skpr = newRegexQuoteSkipper()
-		default:
-			if !acceeptAndEmitAssignment() {
-				lex.pop()
-			}
-			return lexBlockFunc
-		}
-
-		lex.skip(skpr, func(_ byte) {
-			switch open, _ := skpr.group(); string(open) {
-			case lineCommentOpen, blockCommentOpen, singleQuote, doubleQuote, tmplQuote, regexQuote:
-				return
-			}
-
-			acceeptAndEmitAssignment()
-		})
-		return lexBlockFunc
-	}
-	return lexBlockFunc
 }
 
 // The noCommentLexer parses and stores comments instead of emitting them.
