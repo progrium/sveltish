@@ -15,7 +15,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 	setStmts := []string{}
 	mntStmts := []string{}
 	detStmts := []string{}
-	//updStmts := []string{}
+	updStmts := []string{}
 	for _, nv := range c.HTML {
 		decStmts = append(decStmts, fmt.Sprintf("let %s", nv.name))
 		if nv.hasParent {
@@ -66,45 +66,79 @@ func GenerateJS(c *Component) ([]byte, error) {
 			}
 		case *html.ExprNode:
 			valName := fmt.Sprintf("%s_value", nv.name)
+			varNames := []string{}
+			valDirty := 0
 			valContent := node.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
-				ctxVar := generateCtxLookup(i, jsNV)
-				//TODO updStmts
-				return []byte(ctxVar)
+				varNames = append(varNames, jsNV.Name)
+				valDirty += 1 << i
+
+				return []byte(generateCtxLookup(i, jsNV))
 			})
+			setVal := fmt.Sprintf("%s = %s", valName, valContent)
 
 			decStmts = append(
 				decStmts,
-				fmt.Sprintf("let %s = %s", valName, valContent),
+				fmt.Sprintf("let %s", setVal),
 			)
 			setStmts = append(
 				setStmts,
 				fmt.Sprintf("%s = text(%s)", nv.name, valName),
 			)
+			if valDirty != 0 {
+				updStmts = append(
+					updStmts,
+					fmt.Sprintf(
+						"if (dirty & /*%s*/ %d && %s !== (%s = %s)) set_data(%s, %s)",
+						strings.Join(varNames, " "),
+						valDirty,
+						valName,
+						valName,
+						valContent,
+						nv.name,
+						valName,
+					),
+				)
+			}
 		}
 
 		if el, ok := nv.node.(html.Element); ok {
 			for _, attr := range el.Attrs() {
 				attName := generateAttrName(nv.name, attr)
+				varNames := []string{}
+				attrDirty := 0
 				attContent := attr.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
-					ctxVar := generateCtxLookup(i, jsNV)
-					//TODO updStmts
-					return []byte(ctxVar)
+					varNames = append(varNames, jsNV.Name)
+					attrDirty += 1 << i
+
+					return []byte(generateCtxLookup(i, jsNV))
 				})
 
 				decStmts = append(
 					decStmts,
 					fmt.Sprintf("let %s", attName),
 				)
+				setStmt := fmt.Sprintf(
+					"attr(%s, '%s', %s = %s)",
+					nv.name,
+					attr.Name(),
+					attName,
+					attContent,
+				)
 				setStmts = append(
 					setStmts,
-					fmt.Sprintf(
-						"attr(%s, '%s', %s = %s)",
-						nv.name,
-						attr.Name(),
-						attName,
-						attContent,
-					),
+					setStmt,
 				)
+				if attrDirty != 0 {
+					updStmts = append(
+						updStmts,
+						fmt.Sprintf(
+							"if (dirty & /*%s*/ %d) %s",
+							strings.Join(varNames, " "),
+							attrDirty,
+							setStmt,
+						),
+					)
+				}
 			}
 		}
 	}
@@ -121,7 +155,8 @@ func GenerateJS(c *Component) ([]byte, error) {
   init,
   insert,
   noop,
-  safe_not_equal
+  safe_not_equal,
+  set_data
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
@@ -140,7 +175,11 @@ func GenerateJS(c *Component) ([]byte, error) {
 					s.Stmt(mntStmt)
 				}
 			}, ",")
-			s.Line("p: noop,")
+			s.Stmt("p(ctx, [dirty])", func(s *js.Source) {
+				for _, updStmt := range updStmts {
+					s.Stmt(updStmt)
+				}
+			}, ",")
 			s.Line("i: noop,")
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
