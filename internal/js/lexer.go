@@ -3,7 +3,6 @@ package js
 import (
 	"bytes"
 	"errors"
-	"io"
 	"unicode"
 )
 
@@ -39,7 +38,11 @@ const (
 	classKeyword       = "class"
 	extendsKeyword     = "extends"
 	eqOp               = "="
+	plusEqOp           = "+="
+	minusEqOp          = "-="
 	simiOp             = ";"
+	dotOp              = "."
+	optnlDotOp         = "?."
 	newLine            = "\n"
 )
 
@@ -47,21 +50,30 @@ const (
 type tokenType int
 
 const (
-	eofType     tokenType = -1
-	commentType tokenType = iota
+	// shared types
+	eofType   tokenType = -1
+	errorType tokenType = iota
+	commentType
+
+	// lexScript types
 	keywordType
 	varNameType
 	eqOpType
 	simiOpType
 	paramsType
 	codeBlockType
-	errorType
+
+	// rewrite types
+	targetType
+	fragmentType
 )
 
 func (tt tokenType) String() string {
 	switch tt {
 	case eofType:
 		return "eof"
+	case errorType:
+		return "error"
 	case commentType:
 		return "comment"
 	case keywordType:
@@ -76,8 +88,10 @@ func (tt tokenType) String() string {
 		return "params"
 	case codeBlockType:
 		return "codeBlock"
-	case errorType:
-		return "error"
+	case targetType:
+		return "target"
+	case fragmentType:
+		return "fragment"
 	}
 
 	return "Unkown token type"
@@ -96,25 +110,20 @@ type lexer struct {
 }
 
 // startNewLexer creates and starts a new lexer.
-func startNewLexer(src io.Reader) (*lexer, error) {
-	data, err := io.ReadAll(src)
-	if err != nil {
-		return nil, err
-	}
-
+func startNewLexer(initLex func(lexFn) lexFn, data []byte) *lexer {
 	lex := &codeLexer{
 		data:     data,
 		startPos: 0,
 		nextPos:  0,
 		items:    make(chan lexerItem),
 	}
-	go lex.run()
+	go lex.run(initLex)
 
 	return &lexer{
 		lex:   lex,
 		stack: []lexerItem{},
 		err:   nil,
-	}, nil
+	}
 }
 
 // Next returns the next token from the lexer.
@@ -156,14 +165,14 @@ type codeLexer struct {
 }
 
 // run starts the lexers output (expected to be in its own goroutine)
-func (lex *codeLexer) run() {
+func (lex *codeLexer) run(initLex func(lexFn) lexFn) {
 	lex.acceptSpaces()
 	if lex.acceptComment() {
 		lex.emit(commentType)
 		lex.acceptSpaces()
 	}
 
-	for fn := lexRoot(nil); fn != nil; {
+	for fn := initLex(nil); fn != nil; {
 		fn = fn(lex)
 	}
 	close(lex.items)
@@ -261,10 +270,10 @@ func (lex *codeLexer) acceptSpaces() bool {
 func (lex *codeLexer) acceptComment() bool {
 	switch {
 	case lex.acceptExact(lineCommentOpen):
-		lex.skip(newCommentSkipper(lineCommentOpen, newLine))
+		lex.skip(newLineCommentSkipper(), nil)
 		return true
 	case lex.acceptExact(blockCommentOpen):
-		lex.skip(newCommentSkipper(blockCommentOpen, blockCommentClose))
+		lex.skip(newBlockCommentSkipper(), nil)
 		return true
 	}
 
@@ -343,17 +352,17 @@ func (lex *codeLexer) acceptCodeBlock() bool {
 		case lex.acceptEndOfExpr():
 			return true
 		case lex.acceptExact(curlyOpen):
-			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.skip(newCurlyGroupSkipper(), nil)
 		case lex.acceptExact(parenOpen):
-			lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+			lex.skip(newParenGroupSkipper(), nil)
 		case lex.acceptExact(singleQuote):
-			lex.skip(newQuoteSkipper(byte(singleQuote[0])))
+			lex.skip(newSingleQuoteSkipper(), nil)
 		case lex.acceptExact(doubleQuote):
-			lex.skip(newQuoteSkipper(byte(doubleQuote[0])))
+			lex.skip(newDoubleQuoteSkipper(), nil)
 		case lex.acceptExact(tmplQuote):
-			lex.skip(newQuoteSkipper(byte(tmplQuote[0])))
+			lex.skip(newTmplQuoteSkipper(), nil)
 		case lex.acceptExact(regexQuote):
-			lex.skip(newQuoteSkipper(byte(regexQuote[0])))
+			lex.skip(newRegexQuoteSkipper(), nil)
 		default:
 			lex.pop()
 		}
@@ -366,23 +375,24 @@ func (lex *codeLexer) acceptEndOfExpr() bool {
 	if !ok {
 		return true
 	}
-	switch c {
-	case byte(simiOp[0]):
-		return true
-	case byte(newLine[0]):
-		lex.pop()
+	if c == byte(simiOp[0]) {
 		return true
 	}
+	//TODO, add auto-semicolon support
 
 	return false
 }
 
 // skip will use a skipper to ignore code that does not need lexed
-func (lex *codeLexer) skip(skpr skipper) {
+func (lex *codeLexer) skip(skpr skipper, onEach func(byte)) {
 	for skpr.isOpen() {
 		c, ok := lex.pop()
 		if !ok {
 			return
+		}
+
+		if onEach != nil {
+			onEach(c)
 		}
 
 		skpr.next(c)
@@ -393,44 +403,44 @@ func (lex *codeLexer) skip(skpr skipper) {
 // another lexerFunc that can lex the next part
 type lexFn func(*codeLexer) lexFn
 
-// lexRoot will tokenize the root javascript scope
-func lexRoot(lastLex lexFn) lexFn {
-	var lexRootFn lexFn
-	lexRootFn = func(lex *codeLexer) lexFn {
+// lexScript will tokenize the root javascript scope
+func lexScript(lastLex lexFn) lexFn {
+	var lexScriptFn lexFn
+	lexScriptFn = func(lex *codeLexer) lexFn {
 		switch {
 		case lex.atEnd():
 			return lastLex
 		case lex.acceptExact(simiOp):
 			lex.emit(simiOpType)
-			return lexRootFn
+			return lexScriptFn
 		case lex.acceptKeyword(varKeyword), lex.acceptKeyword(letKeyword), lex.acceptKeyword(constKeyword):
 			lex.emit(keywordType)
-			return lexVar(lexRootFn)
+			return lexVar(lexScriptFn)
 		case lex.acceptKeyword(funcKeyword):
 			lex.emit(keywordType)
-			return lexFunction(lexRootFn)
+			return lexFunction(lexScriptFn)
 		case lex.acceptKeyword(ifKeyword):
 			lex.emit(keywordType)
-			return lexIfStmt(lexRootFn)
+			return lexIfStmt(lexScriptFn)
 		case lex.acceptKeyword(forKeyword), lex.acceptKeyword(whileKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(withKeyword):
 			lex.emit(keywordType)
-			return lexCtrlStruct(lexRootFn)
+			return lexCtrlStruct(lexScriptFn)
 		case lex.acceptExact(doKeyword):
 			lex.emit(keywordType)
-			return lexDoWhile(lexRootFn)
+			return lexDoWhile(lexScriptFn)
 		case lex.acceptExact(tryKeyword):
 			lex.emit(keywordType)
-			return lexTryCatch(lexRootFn)
+			return lexTryCatch(lexScriptFn)
 		case lex.acceptExact(classKeyword):
 			lex.emit(keywordType)
-			return lexClass(lexRootFn)
+			return lexClass(lexScriptFn)
 		}
 
 		lex.acceptCodeBlock()
 		lex.emit(codeBlockType)
-		return lexRootFn
+		return lexScriptFn
 	}
-	return lexRootFn
+	return lexScriptFn
 }
 
 // lexVar will tokenize a javascript variable defintion, starting after the keyword
@@ -471,13 +481,13 @@ func lexFunction(lastLex lexFn) lexFn {
 		if found := lex.acceptExact(parenOpen); !found {
 			lex.emitError("No arguments given for function")
 		}
-		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.skip(newParenGroupSkipper(), nil)
 		lex.emit(paramsType) //TODO, add this type
 
 		if found := lex.acceptExact(curlyOpen); !found {
 			lex.emitError("No body given for function")
 		}
-		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.skip(newCurlyGroupSkipper(), nil)
 		lex.emit(codeBlockType) //TODO, add this type (maybe replace expr)
 		return lastLex
 	}
@@ -489,11 +499,11 @@ func lexIfStmt(lastLex lexFn) lexFn {
 		if found := lex.acceptExact(parenOpen); !found {
 			lex.emitError("No params given for if stmt")
 		}
-		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.skip(newParenGroupSkipper(), nil)
 		lex.emit(paramsType)
 
 		if found := lex.acceptExact(curlyOpen); found {
-			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.skip(newCurlyGroupSkipper(), nil)
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptCodeBlock()
@@ -515,12 +525,12 @@ func lexIfStmt(lastLex lexFn) lexFn {
 				if found := lex.acceptExact(parenOpen); !found {
 					lex.emitError("No params given for else if stmt")
 				}
-				lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+				lex.skip(newParenGroupSkipper(), nil)
 				lex.emit(paramsType)
 			}
 
 			if found := lex.acceptExact(curlyOpen); found {
-				lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+				lex.skip(newCurlyGroupSkipper(), nil)
 				lex.emit(codeBlockType)
 			} else {
 				lex.acceptCodeBlock()
@@ -539,12 +549,12 @@ func lexCtrlStruct(lastLex lexFn) lexFn {
 		if found := lex.acceptExact(parenOpen); !found {
 			lex.emitError("No params given for control structure")
 		}
-		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.skip(newParenGroupSkipper(), nil)
 		lex.emit(paramsType)
 		lex.acceptSpaces()
 
 		if found := lex.acceptExact(curlyOpen); found {
-			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.skip(newCurlyGroupSkipper(), nil)
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptCodeBlock()
@@ -562,7 +572,7 @@ func lexCtrlStruct(lastLex lexFn) lexFn {
 func lexDoWhile(lastLex lexFn) lexFn {
 	return func(lex *codeLexer) lexFn {
 		if found := lex.acceptExact(curlyOpen); found {
-			lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+			lex.skip(newCurlyGroupSkipper(), nil)
 			lex.emit(codeBlockType)
 		} else {
 			lex.acceptCodeBlock()
@@ -582,7 +592,7 @@ func lexDoWhile(lastLex lexFn) lexFn {
 			lex.emitError("No params given for do while loop")
 			return nil
 		}
-		lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+		lex.skip(newParenGroupSkipper(), nil)
 		lex.emit(paramsType)
 
 		if found := lex.acceptExact(simiOp); !found {
@@ -602,7 +612,7 @@ func lexTryCatch(lastLex lexFn) lexFn {
 			lex.emitError("No body given for try")
 			return nil
 		}
-		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.skip(newCurlyGroupSkipper(), nil)
 		lex.emit(codeBlockType)
 
 		if found := lex.acceptKeyword(catchKeyword); !found {
@@ -612,7 +622,7 @@ func lexTryCatch(lastLex lexFn) lexFn {
 		lex.emit(keywordType)
 
 		if found := lex.acceptExact(parenOpen); found {
-			lex.skip(newGroupSkipper(byte(parenOpen[0]), byte(parenClose[0])))
+			lex.skip(newParenGroupSkipper(), nil)
 			lex.emit(paramsType)
 		}
 
@@ -620,7 +630,7 @@ func lexTryCatch(lastLex lexFn) lexFn {
 			lex.emitError("No body given for catch")
 			return nil
 		}
-		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.skip(newCurlyGroupSkipper(), nil)
 		lex.emit(codeBlockType)
 
 		if found := lex.acceptKeyword(finallyKeyword); !found {
@@ -632,7 +642,7 @@ func lexTryCatch(lastLex lexFn) lexFn {
 			lex.emitError("No body given for finally")
 			return nil
 		}
-		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.skip(newCurlyGroupSkipper(), nil)
 		lex.emit(codeBlockType)
 
 		return lastLex
@@ -659,7 +669,7 @@ func lexClass(lastLex lexFn) lexFn {
 			lex.emitError("No body given for class")
 			return nil
 		}
-		lex.skip(newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0])))
+		lex.skip(newCurlyGroupSkipper(), nil)
 		lex.emit(codeBlockType)
 
 		return lastLex

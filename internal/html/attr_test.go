@@ -2,6 +2,8 @@ package html
 
 import (
 	"testing"
+
+	"github.com/progrium/sveltish/internal/js"
 )
 
 func TestNewAttr(t *testing.T) {
@@ -170,9 +172,13 @@ func TestNewAttr(t *testing.T) {
 				t.Fatalf("Attr should have name %q but it is %q", td.attrName, attr.Name())
 			}
 
-			if attr.JsContent() != td.attrJsContent {
-				t.Fatalf("Attr should have javascript content %q but it is %q", td.attrJsContent, attr.JsContent())
+			if jsContent := attr.JsContent([]*js.NamedVar{}, doNothingRw); jsContent != td.attrJsContent {
+				t.Fatalf("Attr should have javascript content %q but it is %q", td.attrJsContent, jsContent)
 			}
 		})
 	}
+}
+
+func doNothingRw(_ int, _ *js.NamedVar, _ []byte) []byte {
+	panic("Should never call rw function if no variables are given")
 }

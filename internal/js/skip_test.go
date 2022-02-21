@@ -38,7 +38,7 @@ func TestSkipGroup(t *testing.T) {
 
 	for _, td := range testData {
 		t.Run(td.name, func(t *testing.T) {
-			skpr := newGroupSkipper(byte(curlyOpen[0]), byte(curlyClose[0]))
+			skpr := newCurlyGroupSkipper()
 			i := 1
 			for skpr.isOpen() {
 				if i >= len(td.input) {
@@ -114,7 +114,7 @@ func TestSkipComment(t *testing.T) {
 
 	for _, td := range testData {
 		t.Run(td.name, func(t *testing.T) {
-			skpr := newCommentSkipper(td.open, td.close)
+			skpr := newCommentSkipper([]byte(td.open), []byte(td.close))
 			i := 1
 			for skpr.isOpen() {
 				if i >= len(td.input) {

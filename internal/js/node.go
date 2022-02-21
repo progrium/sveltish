@@ -1,6 +1,7 @@
 package js
 
 import (
+	"bytes"
 	"strings"
 	"unicode"
 )
@@ -8,6 +9,22 @@ import (
 // All node types implement the Node interface.
 type Node interface {
 	Js() string
+}
+
+// All node types that set a variable name implement the Var interface.
+type Var interface {
+	Node
+	VarType() string
+	VarNames() []string
+}
+
+type NamedVar struct {
+	Name string
+	Node Var
+}
+type wrapFunc func(int, *NamedVar) (string, string)
+type wrapAssignmenter interface {
+	wrapAssignments([]*NamedVar, wrapFunc)
 }
 
 // A Script node represents a full js script tag.
@@ -21,6 +38,44 @@ func (n *Script) Js() string {
 		js += n.Js()
 	}
 	return js
+}
+
+func (n *Script) RootVars() []*NamedVar {
+	vars := []*NamedVar{}
+	for _, r := range n.roots {
+		v, ok := r.(Var)
+		if !ok {
+			continue
+		}
+
+		for _, name := range v.VarNames() {
+			vars = append(vars, &NamedVar{
+				Name: name,
+				Node: v,
+			})
+		}
+	}
+	return vars
+}
+
+func (n *Script) WrapAssignments(wrap wrapFunc) {
+	vars := n.RootVars()
+	if len(vars) == 0 {
+		return
+	}
+
+	n.wrapAssignments(vars, wrap)
+}
+
+func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	for _, r := range n.roots {
+		switch n := r.(type) {
+		case *BlockNode:
+			continue
+		case wrapAssignmenter:
+			n.wrapAssignments(vars, wrap)
+		}
+	}
 }
 
 func (n *Script) appendChild(child Node) {
@@ -102,8 +157,25 @@ func (n *VarNode) Js() string {
 	)
 }
 
-func (n *VarNode) VarName() string {
-	return trimLeftSpaces(n.name)
+func (n *VarNode) VarType() string {
+	return trimLeftSpaces(n.keyword)
+}
+
+func (n *VarNode) VarNames() []string {
+	if len(n.name) == 0 {
+		return nil
+	}
+
+	//TODO, add support for destructuring
+	return []string{trimLeftSpaces(n.name)}
+}
+
+func (n *VarNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	if n.value == nil {
+		return
+	}
+
+	n.value.wrapAssignments(vars, wrap)
 }
 
 // A FuncNode represents a js function.
@@ -124,12 +196,20 @@ func (n *FuncNode) Js() string {
 	)
 }
 
-func (n *FuncNode) VarName() (string, bool) {
+func (n *FuncNode) VarType() string {
+	return funcKeyword
+}
+
+func (n *FuncNode) VarNames() []string {
 	if len(n.name) == 0 {
-		return "", false
+		return nil
 	}
 
-	return trimLeftSpaces(n.name), true
+	return []string{trimLeftSpaces(n.name)}
+}
+
+func (n *FuncNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // A ClassNode represents a js class.
@@ -152,12 +232,16 @@ func (n *ClassNode) Js() string {
 	)
 }
 
-func (n *ClassNode) VarName() (string, bool) {
+func (n *ClassNode) VarNames() []string {
 	if len(n.name) == 0 {
-		return "", false
+		return nil
 	}
 
-	return trimLeftSpaces(n.name), true
+	return []string{trimLeftSpaces(n.name)}
+}
+
+func (n *ClassNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // An IfNode represents a js if/else[if] statement.
@@ -200,6 +284,18 @@ func (n *IfNode) Js() string {
 	return js
 }
 
+func (n *IfNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.ifBody.wrapAssignments(vars, wrap)
+
+	if n.elseBody != nil {
+		n.elseBody.wrapAssignments(vars, wrap)
+	}
+
+	if n.elseIfNode != nil {
+		n.elseIfNode.wrapAssignments(vars, wrap)
+	}
+}
+
 // A basicCtrlStructNode represents basic js controll structures.
 type basicCtrlStructNode struct {
 	keyword  []byte
@@ -214,6 +310,10 @@ func (n *basicCtrlStructNode) Js() string {
 		string(n.params),
 		n.body.Js(),
 	)
+}
+
+func (n *basicCtrlStructNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
 }
 
 // A SwitchNode represents a js switch statement.
@@ -256,6 +356,10 @@ func (n *DoWhileLoopNode) Js() string {
 	)
 }
 
+func (n *DoWhileLoopNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.body.wrapAssignments(vars, wrap)
+}
+
 // A TryCatchNode represents a js try catch statement.
 type TryCatchNode struct {
 	tryKeyword     []byte
@@ -290,6 +394,15 @@ func (n *TryCatchNode) Js() string {
 	)
 }
 
+func (n *TryCatchNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.tryBody.wrapAssignments(vars, wrap)
+	n.catchBody.wrapAssignments(vars, wrap)
+
+	if n.finallyBody != nil {
+		n.finallyBody.wrapAssignments(vars, wrap)
+	}
+}
+
 // A BlockNode represents a block of js code that is not one of the other node types.
 type BlockNode struct {
 	content []byte
@@ -297,6 +410,20 @@ type BlockNode struct {
 
 func (n *BlockNode) Js() string {
 	return string(n.content)
+}
+
+func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	n.content = RewriteAssignments(n.content, func(data []byte) []byte {
+		for i, nv := range vars {
+			if !bytes.HasPrefix(data, []byte(nv.Name)) {
+				continue
+			}
+
+			prefix, sufix := wrap(i, nv)
+			return append(append([]byte(prefix), data...), []byte(sufix)...)
+		}
+		return data
+	})
 }
 
 func trimLeftSpaces(data []byte) string {

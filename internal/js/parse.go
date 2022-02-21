@@ -7,10 +7,11 @@ import (
 
 // Parse will take the js source and create a Script node from it.
 func Parse(src io.Reader) (*Script, error) {
-	lex, err := startNewLexer(src)
+	data, err := io.ReadAll(src)
 	if err != nil {
 		return nil, err
 	}
+	lex := startNewLexer(lexScript, data)
 
 	script := &Script{}
 	if err := script.parse(lex); err != nil {

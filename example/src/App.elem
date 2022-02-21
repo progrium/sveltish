@@ -1,5 +1,10 @@
 <script>
 	let name = "worlds";
+
+	function test() {
+		name = `[${name}]`;
+	}
+	window.TEST = test;
 </script>
 
 <main test="with {name}" another="test" no-value>

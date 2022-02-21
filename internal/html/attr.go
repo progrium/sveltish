@@ -5,6 +5,8 @@ import (
 	"errors"
 	"strings"
 	"unicode"
+
+	"github.com/progrium/sveltish/internal/js"
 )
 
 // An attr represents an attribute on an html element.
@@ -118,7 +120,7 @@ func (attr *staticAttr) Content() string {
 	return attr.content
 }
 
-func (attr *staticAttr) JsContent() string {
+func (attr *staticAttr) JsContent(_ []*js.NamedVar, _ func(int, *js.NamedVar, []byte) []byte) string {
 	return "'" + strings.ReplaceAll(attr.content, "'", `\'`) + "'"
 }
 
@@ -135,8 +137,18 @@ func (attr *exprAttr) Content() string {
 	return "{" + attr.expr + "}"
 }
 
-func (attr *exprAttr) JsContent() string {
-	return attr.expr
+func (attr *exprAttr) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
+	rwData := js.RewriteVarNames([]byte(attr.expr), func(data []byte) []byte {
+		for i, v := range vars {
+			if string(data) != v.Name {
+				continue
+			}
+
+			return rw(i, v, data)
+		}
+		return data
+	})
+	return string(rwData)
 }
 
 type tmplAttr struct {
@@ -159,10 +171,20 @@ func (attr *tmplAttr) Content() string {
 	return c
 }
 
-func (attr *tmplAttr) JsContent() string {
+func (attr *tmplAttr) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
 	c := attr.tmpl[0]
 	for i, expr := range attr.exprs {
-		c += "${" + expr + "}"
+		rwData := js.RewriteVarNames([]byte(expr), func(data []byte) []byte {
+			for i, v := range vars {
+				if string(data) != v.Name {
+					continue
+				}
+
+				return rw(i, v, data)
+			}
+			return data
+		})
+		c += "${" + string(rwData) + "}"
 		c += strings.ReplaceAll(attr.tmpl[i+1], "`", "\\`")
 	}
 
