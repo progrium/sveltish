@@ -14,22 +14,33 @@ func lexRewriteAssignments(lastLex lexFn) lexFn {
 	lexRewriteAssignmentsFunc = func(lex *codeLexer) lexFn {
 		acceeptAndEmitAssignment := func() bool {
 			currPos := lex.nextPos
-			if lex.acceptVarName() {
-				lex.acceptSpaces()
-				if lex.acceptExact(eqOp) && !lex.acceptExact(eqOp) {
-					lex.acceptCodeBlock()
-					assignPos := lex.nextPos
-
-					lex.nextPos = currPos
-					lex.emit(fragmentType)
-
-					lex.nextPos = assignPos
-					lex.emit(targetType)
-					return true
-				}
+			if !lex.acceptVarName() {
+				return false
 			}
+
+			lex.acceptSpaces()
+			switch {
+			case lex.acceptExact(plusEqOp):
+				break
+			case lex.acceptExact(minusEqOp):
+				break
+			case lex.acceptExact(eqOp) && !lex.acceptExact(eqOp):
+				break
+			default:
+				lex.nextPos = currPos
+				return false
+			}
+
+			lex.acceptCodeBlock()
+			assignPos := lex.nextPos
+
 			lex.nextPos = currPos
-			return false
+			lex.emit(fragmentType)
+
+			lex.nextPos = assignPos
+			lex.emit(targetType)
+			return true
+
 		}
 
 		var skpr skipper
@@ -37,6 +48,10 @@ func lexRewriteAssignments(lastLex lexFn) lexFn {
 		case lex.atEnd():
 			lex.emit(fragmentType)
 			return lastLex
+		case lex.acceptExact(dotOp), lex.acceptExact(optnlDotOp):
+			lex.acceptSpaces()
+			lex.acceptVarName()
+			return lexRewriteAssignmentsFunc
 		case lex.acceptExact(lineCommentOpen):
 			skpr = newLineCommentSkipper()
 		case lex.acceptExact(blockCommentOpen):

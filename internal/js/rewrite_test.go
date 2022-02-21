@@ -20,10 +20,24 @@ func TestLexRewriteAssignment(t *testing.T) {
 			[]byte("func({ some: 'test' });"),
 		},
 		{
+			"DotAssignment",
+			[]byte("value.test = 'test';"),
+			[][]byte{},
+			[]byte("value.test = 'test';"),
+		},
+		{
 			"JustAnAssignment",
 			[]byte("value = 'some test';"),
 			[][]byte{
 				[]byte("value = 'some test'"),
+			},
+			[]byte("REWRITTEN;"),
+		},
+		{
+			"JustPlusAssignment",
+			[]byte("value =+ 'some test';"),
+			[][]byte{
+				[]byte("value =+ 'some test'"),
 			},
 			[]byte("REWRITTEN;"),
 		},
@@ -43,7 +57,7 @@ func TestLexRewriteAssignment(t *testing.T) {
 			`),
 		},
 		{
-			"AssignmentAndNonAssignments",
+			"AssignmentsAndNonAssignments",
 			[]byte(`
 				// Some comment
 				value = 'some test';

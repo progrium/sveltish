@@ -38,6 +38,8 @@ const (
 	classKeyword       = "class"
 	extendsKeyword     = "extends"
 	eqOp               = "="
+	plusEqOp           = "+="
+	minusEqOp          = "-="
 	simiOp             = ";"
 	dotOp              = "."
 	optnlDotOp         = "?."
