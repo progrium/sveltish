@@ -508,6 +508,60 @@ let test;`,
 			},
 		},
 		{
+			"LabeledAssignment",
+			[]byte("$: some = 'value';"),
+			[]lexerItem{
+				{labelType, []byte("$:")},
+				{varNameType, []byte(" some")},
+				{eqOpType, []byte(" =")},
+				{codeBlockType, []byte(" 'value'")},
+				{simiOpType, []byte(";")},
+				{eofType, nil},
+			},
+		},
+		{
+			"LabeledBlock",
+			[]byte(`$: {
+				someFunc();
+			}`),
+			[]lexerItem{
+				{labelType, []byte("$:")},
+				{codeBlockType, []byte(
+					` {
+				someFunc();
+			}`,
+				)},
+				{eofType, nil},
+			},
+		},
+		{
+			"LabeledControlStructure",
+			[]byte(`$: if (a == b) {
+				//Some comment
+				return c;
+			} else {
+				return f({ g });
+			}`),
+			[]lexerItem{
+				{labelType, []byte("$:")},
+				{keywordType, []byte(" if")},
+				{paramsType, []byte(" (a == b)")},
+				{codeBlockType, []byte(
+					` {
+				//Some comment
+				return c;
+			}`,
+				)},
+				{keywordType, []byte(" else")},
+				{codeBlockType, []byte(
+					` {
+				return f({ g });
+			}`,
+				)},
+				{eofType, nil},
+			},
+		},
+		{
 			"ManyStatments",
 			[]byte(`
 				// Some header comment
