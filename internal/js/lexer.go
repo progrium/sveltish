@@ -375,13 +375,10 @@ func (lex *codeLexer) acceptEndOfExpr() bool {
 	if !ok {
 		return true
 	}
-	switch c {
-	case byte(simiOp[0]):
-		return true
-	case byte(newLine[0]):
-		lex.pop()
+	if c == byte(simiOp[0]) {
 		return true
 	}
+	//TODO, add auto-semicolon support
 
 	return false
 }
