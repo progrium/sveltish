@@ -36,27 +36,10 @@ func (n *Script) parse(lex *lexer) error {
 			return errors.New(string(data))
 		case commentType:
 			nextNode = &CommentNode{}
+		case labelType:
+			nextNode = &LabelNode{}
 		case keywordType:
-			switch trimLeftSpaces(data) {
-			case varKeyword, letKeyword, constKeyword:
-				nextNode = &VarNode{}
-			case funcKeyword:
-				nextNode = &FuncNode{}
-			case classKeyword:
-				nextNode = &ClassNode{}
-			case ifKeyword:
-				nextNode = &IfNode{}
-			case switchKeyword:
-				nextNode = &SwitchNode{}
-			case withKeyword:
-				nextNode = &WithNode{}
-			case forKeyword:
-				nextNode = &ForLoopNode{}
-			case whileKeyword:
-				nextNode = &WhileLoopNode{}
-			case doKeyword:
-				nextNode = &DoWhileLoopNode{}
-			}
+			nextNode, _ = nodeForKeyword(trimLeftSpaces(data))
 		}
 		if nextNode == nil {
 			nextNode = &BlockNode{}
@@ -295,4 +278,32 @@ func (n *BlockNode) parse(lex *lexer) error {
 	_, data := lex.Next()
 	n.content = data
 	return nil
+}
+
+func nodeForKeyword(kw string) (interface {
+	Node
+	parser
+}, bool) {
+	switch kw {
+	case varKeyword, letKeyword, constKeyword:
+		return &VarNode{}, true
+	case funcKeyword:
+		return &FuncNode{}, true
+	case classKeyword:
+		return &ClassNode{}, true
+	case ifKeyword:
+		return &IfNode{}, true
+	case switchKeyword:
+		return &SwitchNode{}, true
+	case withKeyword:
+		return &WithNode{}, true
+	case forKeyword:
+		return &ForLoopNode{}, true
+	case whileKeyword:
+		return &WhileLoopNode{}, true
+	case doKeyword:
+		return &DoWhileLoopNode{}, true
+	}
+
+	return nil, false
 }
