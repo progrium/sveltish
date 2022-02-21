@@ -11,6 +11,104 @@ import (
 func GenerateJS(c *Component) ([]byte, error) {
 	rootVars := c.JS.RootVars()
 
+	decStmts := []string{}
+	setStmts := []string{}
+	mntStmts := []string{}
+	detStmts := []string{}
+	//updStmts := []string{}
+	for _, nv := range c.HTML {
+		decStmts = append(decStmts, fmt.Sprintf("let %s", nv.name))
+		if nv.hasParent {
+			mntStmts = append(
+				mntStmts,
+				fmt.Sprintf(
+					"append(%s, %s)",
+					nv.parentName,
+					nv.name,
+				),
+			)
+		} else {
+			mntStmts = append(
+				mntStmts,
+				fmt.Sprintf(
+					"insert(target, %s, anchor)",
+					nv.name,
+				),
+			)
+			detStmts = append(
+				detStmts,
+				fmt.Sprintf("if (detaching) detach(%s)", nv.name),
+			)
+		}
+
+		switch node := nv.node.(type) {
+		case *html.ElNode:
+			setStmts = append(
+				setStmts,
+				fmt.Sprintf(`%s = element("%s")`, nv.name, node.Tag()),
+			)
+		case *html.LeafElNode:
+			setStmts = append(
+				setStmts,
+				fmt.Sprintf(`%s = element("%s")`, nv.name, node.Tag()),
+			)
+		case *html.TxtNode:
+			if html.IsContentWhiteSpace(node) {
+				setStmts = append(
+					setStmts,
+					fmt.Sprintf("%s = space()", nv.name),
+				)
+			} else {
+				setStmts = append(
+					setStmts,
+					fmt.Sprintf(`%s = text("%s")`, nv.name, node.Content()),
+				)
+			}
+		case *html.ExprNode:
+			valName := fmt.Sprintf("%s_value", nv.name)
+			valContent := node.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
+				ctxVar := generateCtxLookup(i, jsNV)
+				//TODO updStmts
+				return []byte(ctxVar)
+			})
+
+			decStmts = append(
+				decStmts,
+				fmt.Sprintf("let %s = %s", valName, valContent),
+			)
+			setStmts = append(
+				setStmts,
+				fmt.Sprintf("%s = text(%s)", nv.name, valName),
+			)
+		}
+
+		if el, ok := nv.node.(html.Element); ok {
+			for _, attr := range el.Attrs() {
+				attName := generateAttrName(nv.name, attr)
+				attContent := attr.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
+					ctxVar := generateCtxLookup(i, jsNV)
+					//TODO updStmts
+					return []byte(ctxVar)
+				})
+
+				decStmts = append(
+					decStmts,
+					fmt.Sprintf("let %s", attName),
+				)
+				setStmts = append(
+					setStmts,
+					fmt.Sprintf(
+						"attr(%s, '%s', %s = %s)",
+						nv.name,
+						attr.Name(),
+						attName,
+						attContent,
+					),
+				)
+			}
+		}
+	}
+
 	s := &js.Source{}
 	s.Stmt(`import {
   SvelteComponent,
@@ -27,67 +125,27 @@ func GenerateJS(c *Component) ([]byte, error) {
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
-		for _, nv := range c.HTML {
-			s.Stmt("let", nv.name)
-			if exn, ok := nv.node.(*html.ExprNode); ok {
-				s.Stmt("let", fmt.Sprintf("%s_value", nv.name), "=", exn.JsContent(rootVars, replaceWithCtx))
-			}
-			if el, ok := nv.node.(html.Element); ok {
-				for _, attr := range el.Attrs() {
-					s.Stmt("let", generateAttrName(nv.name, attr))
-				}
-			}
+		for _, decStmt := range decStmts {
+			s.Stmt(decStmt)
 		}
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
 			s.Stmt("c()", func(s *js.Source) {
-				for _, nv := range c.HTML {
-					switch node := nv.node.(type) {
-					case *html.ElNode:
-						s.Stmt(nv.name, "=", fmt.Sprintf(`element("%s")`, node.Tag()))
-					case *html.LeafElNode:
-						s.Stmt(nv.name, "=", fmt.Sprintf(`element("%s")`, node.Tag()))
-					case *html.TxtNode:
-						if html.IsContentWhiteSpace(node) {
-							s.Stmt(nv.name, "=", "space()")
-						} else {
-							s.Stmt(nv.name, "=", fmt.Sprintf(`text("%s")`, node.Content()))
-						}
-					case *html.ExprNode:
-						s.Stmt(nv.name, "=", fmt.Sprintf("text(%s_value)", nv.name))
-					}
-
-					if el, ok := nv.node.(html.Element); ok {
-						for _, attr := range el.Attrs() {
-							s.Stmt(s.Call(
-								"attr",
-								nv.name,
-								"'"+attr.Name()+"'",
-								fmt.Sprintf("%s = %s", generateAttrName(nv.name, attr), attr.JsContent(rootVars, replaceWithCtx)),
-							))
-						}
-					}
+				for _, setStmt := range setStmts {
+					s.Stmt(setStmt)
 				}
 			}, ",")
 			s.Stmt("m(target, anchor)", func(s *js.Source) {
-				for _, nv := range c.HTML {
-					if nv.hasParent {
-						s.Stmt(s.Call("append", nv.parentName, nv.name))
-					} else {
-						s.Stmt(s.Call("insert", "target", nv.name, "anchor"))
-					}
+				for _, mntStmt := range mntStmts {
+					s.Stmt(mntStmt)
 				}
 			}, ",")
 			s.Line("p: noop,")
 			s.Line("i: noop,")
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
-				for _, nv := range c.HTML {
-					if nv.hasParent {
-						continue
-					}
-
-					s.Stmt("if (detaching)", s.Call("detach", nv.name))
+				for _, detStmt := range detStmts {
+					s.Stmt(detStmt)
 				}
 			})
 
@@ -127,6 +185,6 @@ func generateAttrName(nodeName string, attr html.Attr) string {
 	return fmt.Sprintf("%s_%s_value", nodeName, attrName)
 }
 
-func replaceWithCtx(i int, nv *js.NamedVar, _ []byte) []byte {
-	return []byte(fmt.Sprintf("/* %s */ ctx[%d]", nv.Name, i))
+func generateCtxLookup(i int, jsNV *js.NamedVar) string {
+	return fmt.Sprintf("/* %s */ ctx[%d]", jsNV.Name, i)
 }
