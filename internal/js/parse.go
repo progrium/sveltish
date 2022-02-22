@@ -63,6 +63,62 @@ func (n *CommentNode) parse(lex *lexer) error {
 	return nil
 }
 
+func (n *LabelNode) parse(lex *lexer) error {
+	n.comments = &childComments{}
+	ncLex := &noCommentLexer{lex, n.comments}
+
+	_, data := ncLex.Next()
+	n.label = data
+
+	tt, data := ncLex.Next()
+	switch tt {
+	case varNameType:
+		n.name = data
+
+		tt, data = ncLex.Next()
+		if tt != eqOpType {
+			return errors.New("Equal sign must follow variable name in labeled assignment")
+		}
+		n.equals = data
+
+		tt, data = ncLex.Next()
+		if tt != codeBlockType {
+			return errors.New("Expression must follow equals sign in labled assigment")
+		}
+		nextNode := &BlockNode{}
+		ncLex.rewind(tt, data)
+		if err := nextNode.parse(lex); err != nil {
+			return err
+		}
+		n.body = nextNode
+
+		tt, data = ncLex.Next()
+		if tt == simiOpType {
+			n.simi = data
+		} else {
+			ncLex.rewind(tt, data)
+		}
+	case keywordType:
+		nextNode, ok := nodeForKeyword(trimLeftSpaces(data))
+		if !ok {
+			return errors.New("Invalid keyword following label")
+		}
+		ncLex.rewind(tt, data)
+		if err := nextNode.parse(lex); err != nil {
+			return err
+		}
+		n.body = nextNode
+	case codeBlockType:
+		nextNode := &BlockNode{}
+		ncLex.rewind(tt, data)
+		if err := nextNode.parse(lex); err != nil {
+			return err
+		}
+		n.body = nextNode
+	}
+	return nil
+}
+
 func (n *VarNode) parse(lex *lexer) error {
 	n.comments = &childComments{}
 	ncLex := &noCommentLexer{lex, n.comments}

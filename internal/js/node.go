@@ -129,6 +129,52 @@ func (cs *childComments) injectBetween(allData ...string) string {
 	return js
 }
 
+// A LabelNode reprents a labeled js statement.
+type LabelNode struct {
+	label    []byte
+	name     []byte
+	equals   []byte
+	body     Node
+	simi     []byte
+	comments *childComments
+}
+
+func (n *LabelNode) Js() string {
+	if len(n.name) == 0 {
+		return n.comments.injectBetween(
+			string(n.label),
+			n.body.Js(),
+		)
+	}
+
+	return n.comments.injectBetween(
+		string(n.label),
+		string(n.name),
+		string(n.equals),
+		n.body.Js(),
+		string(n.simi),
+	)
+}
+
+func (n *LabelNode) Label() string {
+	return strings.TrimFunc(string(n.label), func(r rune) bool {
+		switch {
+		case unicode.IsSpace(r):
+			return true
+		case r == rune(labelSufix[0]):
+			return true
+		}
+
+		return false
+	})
+}
+
+const reactiveLabel = "$"
+
+func (n *LabelNode) IsReactive() bool {
+	return n.Label() == reactiveLabel
+}
+
 // A VarNode represents a js variable initlization/declarion.
 type VarNode struct {
 	keyword  []byte
