@@ -33,10 +33,40 @@ type Script struct {
 }
 
 func (n *Script) Js() string {
-	js := ""
+	nrmlRoots := []Node{}
+	ratvRoots := []*LabelNode{}
 	for _, n := range n.roots {
+		if ln, ok := n.(*LabelNode); ok && ln.IsReactive() {
+			ratvRoots = append(ratvRoots, ln)
+			continue
+		}
+
+		nrmlRoots = append(nrmlRoots, n)
+	}
+
+	js := ""
+	for _, n := range ratvRoots {
+		if len(n.name) == 0 {
+			continue
+		}
+
+		js += "\nlet " + string(n.name) + ";"
+	}
+
+	for _, n := range nrmlRoots {
 		js += n.Js()
 	}
+
+	if len(ratvRoots) == 0 {
+		return js
+	}
+
+	//TODO, move the svelt js into generate.go and add dirty check
+	js += "\n$$self.$$.update = () => {\n"
+	for _, n := range ratvRoots {
+		js += n.Js()
+	}
+	js += "\n};"
 	return js
 }
 
@@ -69,12 +99,12 @@ func (n *Script) WrapAssignments(wrap wrapFunc) {
 
 func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
 	for _, r := range n.roots {
-		switch n := r.(type) {
-		case *BlockNode:
+		n, ok := r.(wrapAssignmenter)
+		if !ok {
 			continue
-		case wrapAssignmenter:
-			n.wrapAssignments(vars, wrap)
 		}
+
+		n.wrapAssignments(vars, wrap)
 	}
 }
 
@@ -137,6 +167,9 @@ type LabelNode struct {
 	body     Node
 	simi     []byte
 	comments *childComments
+
+	//TODO, remove prefix/sufix
+	prefix, sufix string
 }
 
 func (n *LabelNode) Js() string {
@@ -147,13 +180,46 @@ func (n *LabelNode) Js() string {
 		)
 	}
 
+	//TODO, remove prefix/sufix
 	return n.comments.injectBetween(
 		string(n.label),
-		string(n.name),
+		n.prefix+string(n.name),
 		string(n.equals),
-		n.body.Js(),
+		n.body.Js()+n.sufix,
 		string(n.simi),
 	)
+}
+
+func (n *LabelNode) VarType() string {
+	return trimLeftSpaces(n.label)
+}
+
+func (n *LabelNode) VarNames() []string {
+	if len(n.name) == 0 {
+		return nil
+	}
+
+	//TODO, add support for destructuring
+	return []string{trimLeftSpaces(n.name)}
+}
+
+func (n *LabelNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
+	if body, ok := n.body.(wrapAssignmenter); ok {
+		body.wrapAssignments(vars, wrap)
+	}
+
+	for i, nv := range vars {
+		if nv.Name != trimLeftSpaces(n.name) {
+			continue
+		}
+
+		prefix, sufix := wrap(i, nv)
+
+		//TODO, remove prefix/sufix
+		n.prefix = prefix
+		n.sufix = sufix
+		break
+	}
 }
 
 func (n *LabelNode) Label() string {

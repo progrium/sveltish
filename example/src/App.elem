@@ -1,5 +1,9 @@
 <script>
 	let name = "worlds";
+	$: nameWithSufix = `${name}!!!`;
+	$: if (name != "worlds") {
+		console.log("Name changed")
+	}
 
 	function test() {
 		name = `[${name}]`;
@@ -9,7 +13,7 @@
 
 <main test="with {name}" another="test" no-value>
 	<h1>Welcome <strong>{name}</strong>!</h1>
-	<h1>Another <strong>Welcome</strong>!</h1>
+	<h1>Another <strong>{nameWithSufix}</strong></h1>
 </main>
 <footer>Test Footer</footer>
 
