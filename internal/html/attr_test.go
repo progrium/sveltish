@@ -12,7 +12,7 @@ func TestNewAttr(t *testing.T) {
 		input         []byte
 		attrType      string
 		attrName      string
-		attrJsContent string
+		attrJsContent string //TODO, replace for Rewriter
 	}{
 		{
 			"NameOnly",
@@ -172,13 +172,15 @@ func TestNewAttr(t *testing.T) {
 				t.Fatalf("Attr should have name %q but it is %q", td.attrName, attr.Name())
 			}
 
-			if jsContent := attr.JsContent([]*js.NamedVar{}, doNothingRw); jsContent != td.attrJsContent {
+			if jsContent, _ := attr.RewriteJs(&doNothingRw{}); string(jsContent) != td.attrJsContent {
 				t.Fatalf("Attr should have javascript content %q but it is %q", td.attrJsContent, jsContent)
 			}
 		})
 	}
 }
 
-func doNothingRw(_ int, _ *js.NamedVar, _ []byte) []byte {
-	panic("Should never call rw function if no variables are given")
+type doNothingRw struct{}
+
+func (_ *doNothingRw) Rewrite(data []byte) ([]byte, js.RewriteInfo) {
+	return data, js.NewEmptyRewriteInfo()
 }

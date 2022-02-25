@@ -11,8 +11,8 @@ import (
 
 // An attr represents an attribute on an html element.
 type Attr interface {
-	JsContenter
 	Name() string
+	RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo)
 
 	//TODO, add for attributes with ":..." directives
 	//Dir() (string, bool)
@@ -120,8 +120,9 @@ func (attr *staticAttr) Content() string {
 	return attr.content
 }
 
-func (attr *staticAttr) JsContent(_ []*js.NamedVar, _ func(int, *js.NamedVar, []byte) []byte) string {
-	return "'" + strings.ReplaceAll(attr.content, "'", `\'`) + "'"
+func (attr *staticAttr) RewriteJs(_ js.VarRewriter) ([]byte, js.RewriteInfo) {
+	data := []byte("'" + strings.ReplaceAll(attr.content, "'", `\'`) + "'")
+	return data, js.NewEmptyRewriteInfo()
 }
 
 type exprAttr struct {
@@ -137,18 +138,8 @@ func (attr *exprAttr) Content() string {
 	return "{" + attr.expr + "}"
 }
 
-func (attr *exprAttr) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
-	rwData := js.RewriteVarNames([]byte(attr.expr), func(data []byte) []byte {
-		for i, v := range vars {
-			if string(data) != v.Name {
-				continue
-			}
-
-			return rw(i, v, data)
-		}
-		return data
-	})
-	return string(rwData)
+func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
+	return rw.Rewrite([]byte(attr.expr))
 }
 
 type tmplAttr struct {
@@ -171,22 +162,22 @@ func (attr *tmplAttr) Content() string {
 	return c
 }
 
-func (attr *tmplAttr) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
-	c := attr.tmpl[0]
-	for i, expr := range attr.exprs {
-		rwData := js.RewriteVarNames([]byte(expr), func(data []byte) []byte {
-			for i, v := range vars {
-				if string(data) != v.Name {
-					continue
-				}
+func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
+	data := [][]byte{}
+	data = append(data, []byte("`"))
+	data = append(data, []byte(attr.tmpl[0]))
 
-				return rw(i, v, data)
-			}
-			return data
-		})
-		c += "${" + string(rwData) + "}"
-		c += strings.ReplaceAll(attr.tmpl[i+1], "`", "\\`")
+	allInfo := []js.RewriteInfo{}
+	for i, expr := range attr.exprs {
+		rwData, info := rw.Rewrite([]byte(expr))
+		allInfo = append(allInfo, info)
+
+		data = append(data, []byte("${"))
+		data = append(data, rwData)
+		data = append(data, []byte("}"))
+		data = append(data, []byte(strings.ReplaceAll(attr.tmpl[i+1], "`", "\\`")))
 	}
 
-	return "`" + c + "`"
+	data = append(data, []byte("`"))
+	return bytes.Join(data, nil), js.MergeRewriteInfo(allInfo...)
 }

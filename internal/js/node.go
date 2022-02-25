@@ -1,7 +1,6 @@
 package js
 
 import (
-	"bytes"
 	"strings"
 	"unicode"
 )
@@ -18,94 +17,30 @@ type Var interface {
 	VarNames() []string
 }
 
-type NamedVar struct {
-	Name string
-	Node Var
-}
-type wrapFunc func(int, *NamedVar) (string, string)
-type wrapAssignmenter interface {
-	wrapAssignments([]*NamedVar, wrapFunc)
-}
-
 // A Script node represents a full js script tag.
 type Script struct {
 	roots []Node
 }
 
 func (n *Script) Js() string {
-	nrmlRoots := []Node{}
-	ratvRoots := []*LabelNode{}
-	for _, n := range n.roots {
-		if ln, ok := n.(*LabelNode); ok && ln.IsReactive() {
-			ratvRoots = append(ratvRoots, ln)
-			continue
-		}
-
-		nrmlRoots = append(nrmlRoots, n)
-	}
-
 	js := ""
-	for _, n := range ratvRoots {
-		if len(n.name) == 0 {
-			continue
-		}
-
-		js += "\nlet " + string(n.name) + ";"
-	}
-
-	for _, n := range nrmlRoots {
+	for _, n := range n.roots {
 		js += n.Js()
 	}
-
-	if len(ratvRoots) == 0 {
-		return js
-	}
-
-	//TODO, move the svelt js into generate.go and add dirty check
-	js += "\n$$self.$$.update = () => {\n"
-	for _, n := range ratvRoots {
-		js += n.Js()
-	}
-	js += "\n};"
 	return js
 }
 
-func (n *Script) RootVars() []*NamedVar {
-	vars := []*NamedVar{}
+func (n *Script) rootVars() []Var {
+	vars := []Var{}
 	for _, r := range n.roots {
 		v, ok := r.(Var)
 		if !ok {
 			continue
 		}
 
-		for _, name := range v.VarNames() {
-			vars = append(vars, &NamedVar{
-				Name: name,
-				Node: v,
-			})
-		}
+		vars = append(vars, v)
 	}
 	return vars
-}
-
-func (n *Script) WrapAssignments(wrap wrapFunc) {
-	vars := n.RootVars()
-	if len(vars) == 0 {
-		return
-	}
-
-	n.wrapAssignments(vars, wrap)
-}
-
-func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	for _, r := range n.roots {
-		n, ok := r.(wrapAssignmenter)
-		if !ok {
-			continue
-		}
-
-		n.wrapAssignments(vars, wrap)
-	}
 }
 
 func (n *Script) appendChild(child Node) {
@@ -138,22 +73,22 @@ func (cs *childComments) pop() {
 	cs.nodes = cs.nodes[:len(cs.nodes)-1]
 }
 
-func (cs *childComments) injectBetween(allData ...string) string {
-	js := ""
+func (cs *childComments) injectBetween(allData ...[]byte) []byte {
+	js := []byte{}
 	notSet := 0
 	for i, data := range allData {
-		if data == "" {
+		if len(data) == 0 {
 			notSet += 1
 			continue
 		}
 
-		js += data
+		js = append(js, data...)
 
 		for len(cs.nodes) <= i-notSet {
 			cs.appendNil()
 		}
 		if n := cs.nodes[i-notSet]; n != nil {
-			js += n.Js()
+			js = append(js, []byte(n.Js())...)
 		}
 	}
 	return js
@@ -167,27 +102,23 @@ type LabelNode struct {
 	body     Node
 	simi     []byte
 	comments *childComments
-
-	//TODO, remove prefix/sufix
-	prefix, sufix string
 }
 
 func (n *LabelNode) Js() string {
 	if len(n.name) == 0 {
-		return n.comments.injectBetween(
-			string(n.label),
-			n.body.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.label,
+			[]byte(n.body.Js()),
+		))
 	}
 
-	//TODO, remove prefix/sufix
-	return n.comments.injectBetween(
-		string(n.label),
-		n.prefix+string(n.name),
-		string(n.equals),
-		n.body.Js()+n.sufix,
-		string(n.simi),
-	)
+	return string(n.comments.injectBetween(
+		n.label,
+		n.name,
+		n.equals,
+		[]byte(n.body.Js()),
+		n.simi,
+	))
 }
 
 func (n *LabelNode) VarType() string {
@@ -201,25 +132,6 @@ func (n *LabelNode) VarNames() []string {
 
 	//TODO, add support for destructuring
 	return []string{trimLeftSpaces(n.name)}
-}
-
-func (n *LabelNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	if body, ok := n.body.(wrapAssignmenter); ok {
-		body.wrapAssignments(vars, wrap)
-	}
-
-	for i, nv := range vars {
-		if nv.Name != trimLeftSpaces(n.name) {
-			continue
-		}
-
-		prefix, sufix := wrap(i, nv)
-
-		//TODO, remove prefix/sufix
-		n.prefix = prefix
-		n.sufix = sufix
-		break
-	}
 }
 
 func (n *LabelNode) Label() string {
@@ -253,20 +165,20 @@ type VarNode struct {
 
 func (n *VarNode) Js() string {
 	if len(n.equals) == 0 {
-		return n.comments.injectBetween(
-			string(n.keyword),
-			string(n.name),
-			string(n.simi),
-		)
+		return string(n.comments.injectBetween(
+			n.keyword,
+			n.name,
+			n.simi,
+		))
 	}
 
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.name),
-		string(n.equals),
-		n.value.Js(),
-		string(n.simi),
-	)
+	return string(n.comments.injectBetween(
+		n.keyword,
+		n.name,
+		n.equals,
+		[]byte(n.value.Js()),
+		n.simi,
+	))
 }
 
 func (n *VarNode) VarType() string {
@@ -282,14 +194,6 @@ func (n *VarNode) VarNames() []string {
 	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *VarNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	if n.value == nil {
-		return
-	}
-
-	n.value.wrapAssignments(vars, wrap)
-}
-
 // A FuncNode represents a js function.
 type FuncNode struct {
 	keyword  []byte
@@ -300,12 +204,12 @@ type FuncNode struct {
 }
 
 func (n *FuncNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.name),
-		string(n.params),
-		n.body.Js(),
-	)
+	return string(n.comments.injectBetween(
+		n.keyword,
+		n.name,
+		n.params,
+		[]byte(n.body.Js()),
+	))
 }
 
 func (n *FuncNode) VarType() string {
@@ -320,10 +224,6 @@ func (n *FuncNode) VarNames() []string {
 	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *FuncNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
-}
-
 // A ClassNode represents a js class.
 type ClassNode struct {
 	classKeyword   []byte
@@ -335,13 +235,13 @@ type ClassNode struct {
 }
 
 func (n *ClassNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.classKeyword),
-		string(n.name),
-		string(n.extendsKeyword),
-		string(n.superName),
-		n.body.Js(),
-	)
+	return string(n.comments.injectBetween(
+		n.classKeyword,
+		n.name,
+		n.extendsKeyword,
+		n.superName,
+		[]byte(n.body.Js()),
+	))
 }
 
 func (n *ClassNode) VarNames() []string {
@@ -350,10 +250,6 @@ func (n *ClassNode) VarNames() []string {
 	}
 
 	return []string{trimLeftSpaces(n.name)}
-}
-
-func (n *ClassNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
 }
 
 // An IfNode represents a js if/else[if] statement.
@@ -369,43 +265,31 @@ type IfNode struct {
 
 func (n *IfNode) Js() string {
 	if len(n.elseKeyword) == 0 {
-		return n.comments.injectBetween(
-			string(n.ifKeyword),
-			string(n.params),
-			n.ifBody.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.ifKeyword,
+			n.params,
+			[]byte(n.ifBody.Js()),
+		))
 	}
 
 	if n.elseBody != nil {
-		return n.comments.injectBetween(
-			string(n.ifKeyword),
-			string(n.params),
-			n.ifBody.Js(),
-			string(n.elseKeyword),
-			n.elseBody.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.ifKeyword,
+			n.params,
+			[]byte(n.ifBody.Js()),
+			n.elseKeyword,
+			[]byte(n.elseBody.Js()),
+		))
 	}
 
-	js := n.comments.injectBetween(
-		string(n.ifKeyword),
-		string(n.params),
-		n.ifBody.Js(),
-		string(n.elseKeyword),
-	)
+	js := string(n.comments.injectBetween(
+		n.ifKeyword,
+		n.params,
+		[]byte(n.ifBody.Js()),
+		n.elseKeyword,
+	))
 	js += n.elseIfNode.Js()
 	return js
-}
-
-func (n *IfNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.ifBody.wrapAssignments(vars, wrap)
-
-	if n.elseBody != nil {
-		n.elseBody.wrapAssignments(vars, wrap)
-	}
-
-	if n.elseIfNode != nil {
-		n.elseIfNode.wrapAssignments(vars, wrap)
-	}
 }
 
 // A basicCtrlStructNode represents basic js controll structures.
@@ -417,15 +301,11 @@ type basicCtrlStructNode struct {
 }
 
 func (n *basicCtrlStructNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.params),
-		n.body.Js(),
-	)
-}
-
-func (n *basicCtrlStructNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+	return string(n.comments.injectBetween(
+		n.keyword,
+		n.params,
+		[]byte(n.body.Js()),
+	))
 }
 
 // A SwitchNode represents a js switch statement.
@@ -459,17 +339,13 @@ type DoWhileLoopNode struct {
 }
 
 func (n *DoWhileLoopNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.doKeyword),
-		n.body.Js(),
-		string(n.whileKeyword),
-		string(n.params),
-		string(n.simi),
-	)
-}
-
-func (n *DoWhileLoopNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+	return string(n.comments.injectBetween(
+		n.doKeyword,
+		[]byte(n.body.Js()),
+		n.whileKeyword,
+		n.params,
+		n.simi,
+	))
 }
 
 // A TryCatchNode represents a js try catch statement.
@@ -486,33 +362,24 @@ type TryCatchNode struct {
 
 func (n *TryCatchNode) Js() string {
 	if len(finallyKeyword) == 0 {
-		return n.comments.injectBetween(
-			string(n.tryKeyword),
-			n.tryBody.Js(),
-			string(n.catchKeyword),
-			string(n.params),
-			n.catchBody.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.tryKeyword,
+			[]byte(n.tryBody.Js()),
+			n.catchKeyword,
+			n.params,
+			[]byte(n.catchBody.Js()),
+		))
 	}
 
-	return n.comments.injectBetween(
-		string(n.tryKeyword),
-		n.tryBody.Js(),
-		string(n.catchKeyword),
-		string(n.params),
-		n.catchBody.Js(),
-		string(n.finallyKeyword),
-		n.finallyBody.Js(),
-	)
-}
-
-func (n *TryCatchNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.tryBody.wrapAssignments(vars, wrap)
-	n.catchBody.wrapAssignments(vars, wrap)
-
-	if n.finallyBody != nil {
-		n.finallyBody.wrapAssignments(vars, wrap)
-	}
+	return string(n.comments.injectBetween(
+		n.tryKeyword,
+		[]byte(n.tryBody.Js()),
+		n.catchKeyword,
+		n.params,
+		[]byte(n.catchBody.Js()),
+		n.finallyKeyword,
+		[]byte(n.finallyBody.Js()),
+	))
 }
 
 // A BlockNode represents a block of js code that is not one of the other node types.
@@ -522,20 +389,6 @@ type BlockNode struct {
 
 func (n *BlockNode) Js() string {
 	return string(n.content)
-}
-
-func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.content = RewriteAssignments(n.content, func(data []byte) []byte {
-		for i, nv := range vars {
-			if !bytes.HasPrefix(data, []byte(nv.Name)) {
-				continue
-			}
-
-			prefix, sufix := wrap(i, nv)
-			return append(append([]byte(prefix), data...), []byte(sufix)...)
-		}
-		return data
-	})
 }
 
 func trimLeftSpaces(data []byte) string {

@@ -76,6 +76,26 @@ func TestParseAndReprint(t *testing.T) {
 				i++;
 			} while(i<100);`,
 		)},
+		{
+			"LabeledAssignment",
+			[]byte("$: some = 'value';"),
+		},
+		{
+			"LabeledStatment",
+			[]byte(
+				`$: if (test = 'value') {
+					func();
+				}`,
+			),
+		},
+		{
+			"LabeledBlock",
+			[]byte(
+				`$: {
+					func();
+				}`,
+			),
+		},
 		{"MultipleStatements", []byte(
 			`for (let i=0; i<100; i++) {
 				func(i);
@@ -114,7 +134,7 @@ func TestParseAndReprint(t *testing.T) {
 	}
 }
 
-func TestParseAndPrintReactive(t *testing.T) {
+/*func TestParseAndPrintReactive(t *testing.T) {
 	testData := []struct {
 		name   string
 		input  []byte
@@ -171,4 +191,4 @@ $: {
 			}
 		})
 	}
-}
+}*/
