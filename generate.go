@@ -141,17 +141,25 @@ func GenerateJS(c *Component) ([]byte, error) {
 		newData = append(newData, []byte(")"))
 		return bytes.Join(newData, nil)
 	})
-	/*rw := js.NewVarNameRewriter(s.JS, func (i int, name string, _ js.Var, _ []byte) []byte {
-		return "if (dirty & ..."
-	})*/
-	data, info := c.JS.RewriteForInstance(rw, func(updData []byte) []byte {
-		wrpData := [][]byte{}
-		wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
-		wrpData = append(wrpData, updData)
-		wrpData = append(wrpData, []byte("\n}\n"))
+	data, info := c.JS.RewriteForInstance(
+		rw,
+		func(info js.RewriteInfo, updData []byte) []byte {
+			return []byte(fmt.Sprintf(
+				"if (dirty & /*%s*/ %d) {%s\n}\n",
+				strings.Join(info.VarNames(), " "),
+				info.Dirty(),
+				updData,
+			))
+		},
+		func(updsData []byte) []byte {
+			wrpData := [][]byte{}
+			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
+			wrpData = append(wrpData, updsData)
+			wrpData = append(wrpData, []byte("}\n"))
 
-		return bytes.Join(wrpData, nil)
-	})
+			return bytes.Join(wrpData, nil)
+		},
+	)
 
 	instBody := string(data)
 	instReturns := []string{}

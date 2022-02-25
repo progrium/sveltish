@@ -279,10 +279,14 @@ func rewriteParser(lex *lexer, rw func([]byte) []byte) []byte {
 }
 
 type rewriteAssignmenter interface {
-	rewriteAssignments(rw VarRewriter) []byte
+	rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo)
 }
 
-func (n *Script) RewriteForInstance(rw VarRewriter, wrapUpd func([]byte) []byte) ([]byte, RewriteInfo) {
+func (n *Script) RewriteForInstance(
+	rw VarRewriter,
+	wrapUpd func(RewriteInfo, []byte) []byte,
+	wrapUpds func([]byte) []byte,
+) ([]byte, RewriteInfo) {
 	nrmlRoots := []Node{}
 	ratvRoots := []*LabelNode{}
 	for _, n := range n.roots {
@@ -314,7 +318,8 @@ func (n *Script) RewriteForInstance(rw VarRewriter, wrapUpd func([]byte) []byte)
 
 	for _, r := range n.roots {
 		if n, ok := r.(rewriteAssignmenter); ok {
-			data = append(data, n.rewriteAssignments(rw))
+			nData, _ := n.rewriteAssignments(rw)
+			data = append(data, nData)
 		} else {
 			data = append(data, []byte(r.Js()))
 		}
@@ -323,35 +328,34 @@ func (n *Script) RewriteForInstance(rw VarRewriter, wrapUpd func([]byte) []byte)
 		return bytes.Join(data, nil), info
 	}
 
-	updData := [][]byte{}
+	updsData := [][]byte{}
 	for _, r := range ratvRoots {
-		//TODO, use another rewriter
-		/*if n, ok := r.(rewriteAssignmenter); ok {
-			data = append(data, n.rewriteAssignments(rw))
-			continue
-		}*/
-
-		updData = append(updData, []byte(r.Js()))
+		updData, updInfo := r.rewriteAssignments(rw)
+		updsData = append(updsData, wrapUpd(updInfo, updData))
 	}
-	data = append(data, wrapUpd(bytes.Join(updData, nil)))
+	data = append(data, wrapUpds(bytes.Join(updsData, nil)))
 
 	return bytes.Join(data, nil), info
 }
 
-func (n *Script) rewriteAssignments(rw VarRewriter) []byte {
+func (n *Script) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	data := [][]byte{}
+	info := []RewriteInfo{}
 	for _, n := range n.roots {
 		if ra, ok := n.(rewriteAssignmenter); ok {
-			data = append(data, ra.rewriteAssignments(rw))
+			rootData, rootInfo := ra.rewriteAssignments(rw)
+			data = append(data, rootData)
+			info = append(info, rootInfo)
 		} else {
 			data = append(data, []byte(n.Js()))
 		}
 	}
-	return bytes.Join(data, nil)
+	return bytes.Join(data, nil), MergeRewriteInfo(info...)
 }
 
-func (n *LabelNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	data := [][]byte{}
+	info := []RewriteInfo{}
 
 	data = append(data, n.label)
 
@@ -361,7 +365,9 @@ func (n *LabelNode) rewriteAssignments(rw VarRewriter) []byte {
 	}
 
 	if ra, ok := n.body.(rewriteAssignmenter); ok {
-		data = append(data, ra.rewriteAssignments(rw))
+		raData, raInfo := ra.rewriteAssignments(rw)
+		data = append(data, raData)
+		info = append(info, raInfo)
 	} else {
 		data = append(data, []byte(n.body.Js()))
 	}
@@ -371,10 +377,10 @@ func (n *LabelNode) rewriteAssignments(rw VarRewriter) []byte {
 	}
 
 	//TODO need to add prefix and sufix
-	return n.comments.injectBetween(data...)
+	return n.comments.injectBetween(data...), MergeRewriteInfo(info...)
 }
 
-func (n *VarNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *VarNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	data := [][]byte{}
 
 	data = append(data, n.keyword)
@@ -382,89 +388,113 @@ func (n *VarNode) rewriteAssignments(rw VarRewriter) []byte {
 
 	if len(n.equals) != 0 {
 		data = append(data, n.equals)
-		data = append(data, n.value.rewriteAssignments(rw))
+
+		valueData, info := n.value.rewriteAssignments(rw)
+		data = append(data, valueData)
+		data = append(data, n.simi)
+		return n.comments.injectBetween(data...), info
 	}
 
 	data = append(data, n.simi)
-
-	return n.comments.injectBetween(data...)
+	return n.comments.injectBetween(data...), NewEmptyRewriteInfo()
 }
 
-func (n *FuncNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *FuncNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.keyword,
 		n.name,
 		n.params,
-		n.body.rewriteAssignments(rw),
-	)
+		data,
+	), info
 }
 
-func (n *ClassNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *ClassNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.classKeyword,
 		n.name,
 		n.extendsKeyword,
 		n.superName,
-		n.body.rewriteAssignments(rw),
-	)
+		data,
+	), info
 }
 
-func (n *IfNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *IfNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	data := [][]byte{}
+	info := []RewriteInfo{}
 
 	data = append(data, n.ifKeyword)
 	data = append(data, n.params)
-	data = append(data, n.ifBody.rewriteAssignments(rw))
+
+	ifData, ifInfo := n.ifBody.rewriteAssignments(rw)
+	data = append(data, ifData)
+	info = append(info, ifInfo)
 
 	if n.elseBody != nil {
 		data = append(data, n.elseKeyword)
-		data = append(data, n.elseBody.rewriteAssignments(rw))
+
+		elseData, elseInfo := n.elseBody.rewriteAssignments(rw)
+		data = append(data, elseData)
+		info = append(info, elseInfo)
 	}
 
 	if n.elseIfNode != nil {
 		data = append(data, n.elseKeyword)
-		data = append(data, n.elseIfNode.rewriteAssignments(rw))
+
+		elseIfData, elseIfInfo := n.elseIfNode.rewriteAssignments(rw)
+		data = append(data, elseIfData)
+		info = append(info, elseIfInfo)
 	}
 
-	return n.comments.injectBetween(data...)
+	return n.comments.injectBetween(data...), MergeRewriteInfo(info...)
 }
 
-func (n *basicCtrlStructNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *basicCtrlStructNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+	data, info := n.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.keyword,
 		n.params,
-		n.rewriteAssignments(rw),
-	)
+		data,
+	), info
 }
 
-func (n *DoWhileLoopNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *DoWhileLoopNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.doKeyword,
-		n.body.rewriteAssignments(rw),
+		data,
 		n.whileKeyword,
 		n.params,
 		n.simi,
-	)
+	), info
 }
 
-func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) []byte {
+func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	data := [][]byte{}
 
 	data = append(data, n.tryKeyword)
-	data = append(data, n.tryBody.rewriteAssignments(rw))
+
+	tryData, tryInfo := n.tryBody.rewriteAssignments(rw)
+	data = append(data, tryData)
 	data = append(data, n.catchKeyword)
 	data = append(data, n.params)
-	data = append(data, n.catchBody.rewriteAssignments(rw))
 
-	if n.finallyBody != nil {
-		data = append(data, n.finallyKeyword)
-		data = append(data, n.finallyBody.rewriteAssignments(rw))
+	catchData, catchInfo := n.catchBody.rewriteAssignments(rw)
+	data = append(data, catchData)
+
+	if n.finallyBody == nil {
+		return n.comments.injectBetween(data...), MergeRewriteInfo(tryInfo, catchInfo)
 	}
 
-	return n.comments.injectBetween(data...)
+	data = append(data, n.finallyKeyword)
+
+	finallyData, finallyInfo := n.finallyBody.rewriteAssignments(rw)
+	data = append(data, finallyData)
+
+	return n.comments.injectBetween(data...), MergeRewriteInfo(tryInfo, catchInfo, finallyInfo)
 }
 
-func (n *BlockNode) rewriteAssignments(rw VarRewriter) []byte {
-	data, _ := rw.Rewrite(n.content)
-	return data
+func (n *BlockNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+	return rw.Rewrite(n.content)
 }
