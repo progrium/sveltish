@@ -56,21 +56,37 @@ type VarRewriter interface {
 
 type RewriteFn func(int, string, Var, []byte) []byte
 
-type baseVarRewriter struct {
-	vars []Var
-	fn   RewriteFn
+type lexVarRewriter struct {
+	vars    []Var
+	fn      RewriteFn
+	lexInit func(lexFn) lexFn
+	hasVar  func([]byte, []byte) bool
 }
 
-type AssignmentRewriter struct {
-	baseVarRewriter
+func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+	return &lexVarRewriter{
+		s.rootVars(),
+		fn,
+		lexRewriteAssignments,
+		func(data, name []byte) bool {
+			return bytes.HasPrefix(data, []byte(name))
+		},
+	}
 }
 
-func NewAssignmentRewriter(s *Script, fn RewriteFn) *AssignmentRewriter {
-	return &AssignmentRewriter{baseVarRewriter{s.rootVars(), fn}}
+func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+	return &lexVarRewriter{
+		s.rootVars(),
+		fn,
+		lexRewriteVarNames,
+		func(data, name []byte) bool {
+			return bytes.Compare(data, []byte(name)) != 0
+		},
+	}
 }
 
-func (rw *AssignmentRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
-	lex := startNewLexer(lexrewriteAssignments, data)
+func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
+	lex := startNewLexer(rw.lexInit, data)
 
 	info := NewEmptyRewriteInfo()
 	newData := rewriteParser(lex, func(currData []byte) []byte {
@@ -78,7 +94,7 @@ func (rw *AssignmentRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
 		for _, v := range rw.vars {
 			for _, name := range v.VarNames() {
 				i += 1
-				if !bytes.HasPrefix(currData, []byte(name)) {
+				if !rw.hasVar(currData, []byte(name)) {
 					continue
 				}
 
@@ -93,9 +109,9 @@ func (rw *AssignmentRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
 }
 
 // lexAssignments will tokenize a javascript block (as output by lexScript) to find assignments.
-func lexrewriteAssignments(lastLex lexFn) lexFn {
-	var lexrewriteAssignmentsFunc lexFn
-	lexrewriteAssignmentsFunc = func(lex *codeLexer) lexFn {
+func lexRewriteAssignments(lastLex lexFn) lexFn {
+	var lexRewriteAssignmentsFunc lexFn
+	lexRewriteAssignmentsFunc = func(lex *codeLexer) lexFn {
 		acceeptAndEmitAssignment := func() bool {
 			currPos := lex.nextPos
 			if !lex.acceptVarName() {
@@ -135,7 +151,7 @@ func lexrewriteAssignments(lastLex lexFn) lexFn {
 		case lex.acceptExact(dotOp), lex.acceptExact(optnlDotOp):
 			lex.acceptSpaces()
 			lex.acceptVarName()
-			return lexrewriteAssignmentsFunc
+			return lexRewriteAssignmentsFunc
 		case lex.acceptExact(lineCommentOpen):
 			skpr = newLineCommentSkipper()
 		case lex.acceptExact(blockCommentOpen):
@@ -152,7 +168,7 @@ func lexrewriteAssignments(lastLex lexFn) lexFn {
 			if !acceeptAndEmitAssignment() {
 				lex.pop()
 			}
-			return lexrewriteAssignmentsFunc
+			return lexRewriteAssignmentsFunc
 		}
 
 		lex.skip(skpr, func(_ byte) {
@@ -163,40 +179,9 @@ func lexrewriteAssignments(lastLex lexFn) lexFn {
 
 			acceeptAndEmitAssignment()
 		})
-		return lexrewriteAssignmentsFunc
+		return lexRewriteAssignmentsFunc
 	}
-	return lexrewriteAssignmentsFunc
-}
-
-type VarNameRewriter struct {
-	baseVarRewriter
-}
-
-func NewVarNameRewriter(s *Script, fn RewriteFn) *VarNameRewriter {
-	return &VarNameRewriter{baseVarRewriter{s.rootVars(), fn}}
-}
-
-func (rw *VarNameRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
-	lex := startNewLexer(lexRewriteVarNames, data)
-
-	info := NewEmptyRewriteInfo()
-	newData := rewriteParser(lex, func(currData []byte) []byte {
-		i := -1
-		for _, v := range rw.vars {
-			for _, name := range v.VarNames() {
-				i += 1
-				if bytes.Compare(currData, []byte(name)) != 0 {
-					continue
-				}
-
-				info = append(info, &varInfo{i, name})
-				return rw.fn(i, name, v, currData)
-			}
-		}
-		return currData
-	})
-
-	return newData, info
+	return lexRewriteAssignmentsFunc
 }
 
 // lexRewriteVarNames will tokenize a javascript block (as output by lexScript) to find variable names (and keywords).
