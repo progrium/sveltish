@@ -27,11 +27,13 @@ type rewriteAssignmenter interface {
 	rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo)
 }
 
+type WrapUpdFn func(RewriteInfo, []byte) []byte
+type WrapUpdsFn func(func(WrapUpdFn) []byte) []byte
+
 // RewriteForInstance creates the js for the svelet runtime instance function
 func (n *Script) RewriteForInstance(
 	rw VarRewriter,
-	wrapUpd func(RewriteInfo, []byte) []byte,
-	wrapUpds func([]byte) []byte,
+	wrapUpds WrapUpdsFn,
 ) ([]byte, RewriteInfo) {
 	nrmlRoots := []Node{}
 	ratvRoots := []*LabelNode{}
@@ -74,12 +76,20 @@ func (n *Script) RewriteForInstance(
 		return bytes.Join(data, nil), info
 	}
 
-	updsData := [][]byte{}
-	for _, r := range ratvRoots {
-		updData, updInfo := r.rewriteAssignments(rw)
-		updsData = append(updsData, wrapUpd(updInfo, updData))
-	}
-	data = append(data, wrapUpds(bytes.Join(updsData, nil)))
+	data = append(
+		data,
+		wrapUpds(func(wrapUpd WrapUpdFn) []byte {
+			updsData := [][]byte{}
+			for _, r := range ratvRoots {
+				updData, updInfo := r.rewriteAssignments(rw)
+				updsData = append(
+					updsData,
+					wrapUpd(updInfo, updData),
+				)
+			}
+			return bytes.Join(updsData, nil)
+		}),
+	)
 
 	return bytes.Join(data, nil), info
 }

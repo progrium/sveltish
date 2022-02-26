@@ -143,18 +143,20 @@ func GenerateJS(c *Component) ([]byte, error) {
 	})
 	data, info := c.JS.RewriteForInstance(
 		rw,
-		func(info js.RewriteInfo, updData []byte) []byte {
-			return []byte(fmt.Sprintf(
-				"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
-				strings.Join(info.VarNames(), " "),
-				info.Dirty(),
-				updData,
-			))
-		},
-		func(updsData []byte) []byte {
+		func(wrapUpds func(js.WrapUpdFn) []byte) []byte {
 			wrpData := [][]byte{}
 			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
-			wrpData = append(wrpData, updsData)
+			wrpData = append(
+				wrpData,
+				wrapUpds(func(info js.RewriteInfo, updData []byte) []byte {
+					return []byte(fmt.Sprintf(
+						"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
+						strings.Join(info.VarNames(), " "),
+						info.Dirty(),
+						updData,
+					))
+				}),
+			)
 			wrpData = append(wrpData, []byte("}\n"))
 
 			return bytes.Join(wrpData, nil)
