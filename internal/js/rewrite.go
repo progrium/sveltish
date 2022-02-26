@@ -69,7 +69,7 @@ func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
 		fn,
 		lexRewriteAssignments,
 		func(data, name []byte) bool {
-			return bytes.HasPrefix(data, []byte(name))
+			return bytes.HasPrefix(data, name)
 		},
 	}
 }
@@ -80,7 +80,7 @@ func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
 		fn,
 		lexRewriteVarNames,
 		func(data, name []byte) bool {
-			return bytes.Compare(data, []byte(name)) != 0
+			return bytes.Compare(data, name) != 0
 		},
 	}
 }
