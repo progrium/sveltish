@@ -6,6 +6,24 @@ type skipper interface {
 	group() ([]byte, []byte)
 }
 
+// IndexAfterCurlyGroup finds the index after
+func IndexAfterCurlyGroup(data []byte) int {
+	if data[0] != byte(curlyOpen[0]) {
+		panic("Trying to skip curly group in byte slice that doesn't start with {")
+	}
+
+	skpr := newCurlyGroupSkipper()
+	for i, b := range data[1:] {
+		skpr.next(b)
+		if skpr.isOpen() {
+			continue
+		}
+
+		return i + 2
+	}
+	return -1
+}
+
 type groupSkipper struct {
 	count      int
 	open       []byte
