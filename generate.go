@@ -84,7 +84,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 					updStmts,
 					fmt.Sprintf(
 						"if (dirty & /*%s*/ %d && %s !== (%s = %s)) set_data(%s, %s)",
-						strings.Join(info.VarNames(), " "),
+						strings.Join(info.Names(), " "),
 						valDirty,
 						valName,
 						valName,
@@ -124,7 +124,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 						updStmts,
 						fmt.Sprintf(
 							"if (dirty & /*%s*/ %d) %s",
-							strings.Join(info.VarNames(), " "),
+							strings.Join(info.Names(), " "),
 							attrDirty,
 							setStmt,
 						),
@@ -148,10 +148,10 @@ func GenerateJS(c *Component) ([]byte, error) {
 			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
 			wrpData = append(
 				wrpData,
-				wrapUpds(func(info js.RewriteInfo, updData []byte) []byte {
+				wrapUpds(func(info *js.VarsInfo, updData []byte) []byte {
 					return []byte(fmt.Sprintf(
 						"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
-						strings.Join(info.VarNames(), " "),
+						strings.Join(info.Names(), " "),
 						info.Dirty(),
 						updData,
 					))
@@ -165,7 +165,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 
 	instBody := string(data)
 	instReturns := []string{}
-	for _, name := range info.VarNames() {
+	for _, name := range info.Names() {
 		instReturns = append(instReturns, name)
 	}
 

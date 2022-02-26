@@ -12,7 +12,7 @@ import (
 // An attr represents an attribute on an html element.
 type Attr interface {
 	Name() string
-	RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo)
+	RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo)
 
 	//TODO, add for attributes with ":..." directives
 	//Dir() (string, bool)
@@ -120,9 +120,9 @@ func (attr *staticAttr) Content() string {
 	return attr.content
 }
 
-func (attr *staticAttr) RewriteJs(_ js.VarRewriter) ([]byte, js.RewriteInfo) {
+func (attr *staticAttr) RewriteJs(_ js.VarRewriter) ([]byte, *js.VarsInfo) {
 	data := []byte("'" + strings.ReplaceAll(attr.content, "'", `\'`) + "'")
-	return data, js.NewEmptyRewriteInfo()
+	return data, js.NewEmptyVarsInfo()
 }
 
 type exprAttr struct {
@@ -138,7 +138,7 @@ func (attr *exprAttr) Content() string {
 	return "{" + attr.expr + "}"
 }
 
-func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
+func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 	return rw.Rewrite([]byte(attr.expr))
 }
 
@@ -162,12 +162,12 @@ func (attr *tmplAttr) Content() string {
 	return c
 }
 
-func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
+func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 	data := [][]byte{}
 	data = append(data, []byte("`"))
 	data = append(data, []byte(attr.tmpl[0]))
 
-	allInfo := []js.RewriteInfo{}
+	allInfo := []*js.VarsInfo{}
 	for i, expr := range attr.exprs {
 		rwData, info := rw.Rewrite([]byte(expr))
 		allInfo = append(allInfo, info)
@@ -179,5 +179,5 @@ func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
 	}
 
 	data = append(data, []byte("`"))
-	return bytes.Join(data, nil), js.MergeRewriteInfo(allInfo...)
+	return bytes.Join(data, nil), js.MergeVarsInfo(allInfo...)
 }

@@ -24,17 +24,17 @@ type Script struct {
 }
 
 type rewriteAssignmenter interface {
-	rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo)
+	rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo)
 }
 
-type WrapUpdFn func(RewriteInfo, []byte) []byte
+type WrapUpdFn func(*VarsInfo, []byte) []byte
 type WrapUpdsFn func(func(WrapUpdFn) []byte) []byte
 
 // RewriteForInstance creates the js for the svelet runtime instance function
 func (n *Script) RewriteForInstance(
 	rw VarRewriter,
 	wrapUpds WrapUpdsFn,
-) ([]byte, RewriteInfo) {
+) ([]byte, *VarsInfo) {
 	nrmlRoots := []Node{}
 	ratvRoots := []*LabelNode{}
 	for _, n := range n.roots {
@@ -46,11 +46,11 @@ func (n *Script) RewriteForInstance(
 		nrmlRoots = append(nrmlRoots, n)
 	}
 
-	info := NewEmptyRewriteInfo()
+	info := NewEmptyVarsInfo()
 	i := 0
 	for _, v := range n.rootVars() {
 		for _, name := range v.VarNames() {
-			info = append(info, &varInfo{i, name})
+			info.insert(i, name)
 			i += 1
 		}
 	}
@@ -98,9 +98,9 @@ func (n *Script) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *Script) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *Script) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data := [][]byte{}
-	info := []RewriteInfo{}
+	info := []*VarsInfo{}
 	for _, n := range n.roots {
 		if ra, ok := n.(rewriteAssignmenter); ok {
 			rootData, rootInfo := ra.rewriteAssignments(rw)
@@ -110,7 +110,7 @@ func (n *Script) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 			data = append(data, []byte(n.Js()))
 		}
 	}
-	return bytes.Join(data, nil), MergeRewriteInfo(info...)
+	return bytes.Join(data, nil), MergeVarsInfo(info...)
 }
 
 func (n *Script) rootVars() []Var {
@@ -223,9 +223,9 @@ func (n *LabelNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data := [][]byte{}
-	info := []RewriteInfo{}
+	info := []*VarsInfo{}
 
 	data = append(data, n.label)
 
@@ -247,7 +247,7 @@ func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	}
 
 	//TODO need to add prefix and sufix
-	return n.comments.injectBetween(data...), MergeRewriteInfo(info...)
+	return n.comments.injectBetween(data...), MergeVarsInfo(info...)
 }
 
 // A VarNode represents a js variable initlization/declarion.
@@ -277,7 +277,7 @@ func (n *VarNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *VarNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *VarNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data := [][]byte{}
 
 	data = append(data, n.keyword)
@@ -293,7 +293,7 @@ func (n *VarNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 	}
 
 	data = append(data, n.simi)
-	return n.comments.injectBetween(data...), NewEmptyRewriteInfo()
+	return n.comments.injectBetween(data...), NewEmptyVarsInfo()
 }
 
 // A FuncNode represents a js function.
@@ -321,7 +321,7 @@ func (n *FuncNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *FuncNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *FuncNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.keyword,
@@ -353,7 +353,7 @@ func (n *ClassNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *ClassNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *ClassNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.classKeyword,
@@ -404,9 +404,9 @@ func (n *IfNode) Js() string {
 	return js
 }
 
-func (n *IfNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *IfNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data := [][]byte{}
-	info := []RewriteInfo{}
+	info := []*VarsInfo{}
 
 	data = append(data, n.ifKeyword)
 	data = append(data, n.params)
@@ -431,7 +431,7 @@ func (n *IfNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
 		info = append(info, elseIfInfo)
 	}
 
-	return n.comments.injectBetween(data...), MergeRewriteInfo(info...)
+	return n.comments.injectBetween(data...), MergeVarsInfo(info...)
 }
 
 // A basicCtrlStructNode represents basic js controll structures.
@@ -446,7 +446,7 @@ func (n *basicCtrlStructNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *basicCtrlStructNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *basicCtrlStructNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.keyword,
@@ -489,7 +489,7 @@ func (n *DoWhileLoopNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *DoWhileLoopNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *DoWhileLoopNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data, info := n.body.rewriteAssignments(rw)
 	return n.comments.injectBetween(
 		n.doKeyword,
@@ -516,7 +516,7 @@ func (n *TryCatchNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	data := [][]byte{}
 
 	data = append(data, n.tryKeyword)
@@ -530,7 +530,7 @@ func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) 
 	data = append(data, catchData)
 
 	if n.finallyBody == nil {
-		return n.comments.injectBetween(data...), MergeRewriteInfo(tryInfo, catchInfo)
+		return n.comments.injectBetween(data...), MergeVarsInfo(tryInfo, catchInfo)
 	}
 
 	data = append(data, n.finallyKeyword)
@@ -538,7 +538,7 @@ func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) 
 	finallyData, finallyInfo := n.finallyBody.rewriteAssignments(rw)
 	data = append(data, finallyData)
 
-	return n.comments.injectBetween(data...), MergeRewriteInfo(tryInfo, catchInfo, finallyInfo)
+	return n.comments.injectBetween(data...), MergeVarsInfo(tryInfo, catchInfo, finallyInfo)
 }
 
 // A BlockNode represents a block of js code that is not one of the other node types.
@@ -550,9 +550,9 @@ func (n *BlockNode) Js() string {
 	return noRewriteJs(n)
 }
 
-func (n *BlockNode) rewriteAssignments(rw VarRewriter) ([]byte, RewriteInfo) {
+func (n *BlockNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 	if rw == nil {
-		return n.content, NewEmptyRewriteInfo()
+		return n.content, NewEmptyVarsInfo()
 	}
 
 	return rw.Rewrite(n.content)

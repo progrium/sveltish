@@ -4,54 +4,65 @@ import (
 	"bytes"
 )
 
-type varInfo struct {
-	index int
-	name  string
+type VarRewriter interface {
+	Rewrite([]byte) ([]byte, *VarsInfo)
 }
 
-type RewriteInfo []*varInfo
-
-func NewEmptyRewriteInfo() RewriteInfo {
-	return RewriteInfo{}
+type VarsInfo struct {
+	indexes []int
+	names   []string
 }
 
-func MergeRewriteInfo(allInfo ...RewriteInfo) RewriteInfo {
-	infoMap := map[int]string{}
-	for _, ri := range allInfo {
-		for _, info := range ri {
-			if _, exists := infoMap[info.index]; exists {
-				continue
-			}
+func NewEmptyVarsInfo() *VarsInfo {
+	return &VarsInfo{}
+}
 
-			infoMap[info.index] = info.name
+func MergeVarsInfo(allInfo ...*VarsInfo) *VarsInfo {
+	newInfo := NewEmptyVarsInfo()
+	for _, info := range allInfo {
+		for i, varIndex := range info.indexes {
+			varName := info.names[i]
+			newInfo.insert(varIndex, varName)
 		}
-	}
-
-	newInfo := NewEmptyRewriteInfo()
-	for i, name := range infoMap {
-		newInfo = append(newInfo, &varInfo{i, name})
 	}
 	return newInfo
 }
 
-func (info RewriteInfo) VarNames() []string {
-	names := []string{}
-	for _, v := range info {
-		names = append(names, v.name)
-	}
-	return names
+func (info *VarsInfo) Names() []string {
+	return info.names
 }
 
-func (info RewriteInfo) Dirty() int {
+func (info *VarsInfo) Dirty() int {
 	dirty := 0
-	for _, v := range info {
-		dirty += 1 << v.index
+	for _, varIndex := range info.indexes {
+		dirty += 1 << varIndex
 	}
 	return dirty
 }
 
-type VarRewriter interface {
-	Rewrite([]byte) ([]byte, RewriteInfo)
+func (info *VarsInfo) insert(newVarIndex int, newVarName string) {
+	for i, varIndex := range info.indexes {
+		if newVarIndex == varIndex {
+			if info.names[i] != newVarName {
+				panic("Trying to add multiple vars at the same index")
+			}
+			return
+		}
+		if newVarIndex < varIndex {
+			startIndexes := info.indexes[:i]
+			endIndexes := info.indexes[i:]
+			info.indexes = append(startIndexes, newVarIndex)
+			info.indexes = append(info.indexes, endIndexes...)
+
+			startNames := info.names[:i]
+			endNames := info.names[i:]
+			info.names = append(startNames, newVarName)
+			info.names = append(info.names, endNames...)
+			return
+		}
+	}
+	info.indexes = append(info.indexes, newVarIndex)
+	info.names = append(info.names, newVarName)
 }
 
 type RewriteFn func(int, string, Var, []byte) []byte
@@ -85,9 +96,9 @@ func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
 	}
 }
 
-func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
+func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, *VarsInfo) {
 	lex := startNewLexer(rw.lexInit, data)
-	info := NewEmptyRewriteInfo()
+	info := NewEmptyVarsInfo()
 	newData := rewriteParser(lex, func(currData []byte) []byte {
 		i := -1
 		for _, v := range rw.vars {
@@ -97,7 +108,7 @@ func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, RewriteInfo) {
 					continue
 				}
 
-				info = append(info, &varInfo{i, name})
+				info.insert(i, name)
 				return rw.fn(i, name, v, currData)
 			}
 		}

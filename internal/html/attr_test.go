@@ -181,6 +181,6 @@ func TestNewAttr(t *testing.T) {
 
 type doNothingRw struct{}
 
-func (_ *doNothingRw) Rewrite(data []byte) ([]byte, js.RewriteInfo) {
-	return data, js.NewEmptyRewriteInfo()
+func (_ *doNothingRw) Rewrite(data []byte) ([]byte, *js.VarsInfo) {
+	return data, js.NewEmptyVarsInfo()
 }

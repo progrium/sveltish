@@ -147,7 +147,7 @@ func (n *ExprNode) Content() string {
 	return "{" + n.js + "}"
 }
 
-func (n *ExprNode) RewriteJs(rw js.VarRewriter) ([]byte, js.RewriteInfo) {
+func (n *ExprNode) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 	return rw.Rewrite([]byte(n.js))
 }
 
