@@ -145,7 +145,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 		rw,
 		func(info js.RewriteInfo, updData []byte) []byte {
 			return []byte(fmt.Sprintf(
-				"if (dirty & /*%s*/ %d) {%s\n}\n",
+				"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
 				strings.Join(info.VarNames(), " "),
 				info.Dirty(),
 				updData,
