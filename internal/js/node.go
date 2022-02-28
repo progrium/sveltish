@@ -64,7 +64,7 @@ func (n *Script) RewriteForInstance(
 		data = append(data, []byte("\nlet "+string(r.name)+";"))
 	}
 
-	for _, r := range n.roots {
+	for _, r := range nrmlRoots {
 		if n, ok := r.(rewriteAssignmenter); ok {
 			nData, _ := n.rewriteAssignments(rw)
 			data = append(data, nData)
