@@ -162,12 +162,8 @@ func GenerateJS(c *Component) ([]byte, error) {
 			return bytes.Join(wrpData, nil)
 		},
 	)
-
 	instBody := string(data)
-	instReturns := []string{}
-	for _, name := range info.Names() {
-		instReturns = append(instReturns, name)
-	}
+	instReturns := info.Names()
 
 	s := &js.Source{}
 	s.Stmt(`import {
