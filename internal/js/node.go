@@ -242,12 +242,16 @@ func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
 		data = append(data, []byte(n.body.Js()))
 	}
 
-	if len(n.name) != 0 {
-		data = append(data, n.simi)
+	if len(n.name) == 0 {
+		return n.comments.injectBetween(data...), MergeVarsInfo(info...)
 	}
 
-	//TODO need to add prefix and sufix
-	return n.comments.injectBetween(data...), MergeVarsInfo(info...)
+	data = append(data, n.simi)
+	allData := n.comments.injectBetween(data...)
+	if rw == nil {
+		return allData, NewEmptyVarsInfo()
+	}
+	return rw.Rewrite(allData)
 }
 
 // A VarNode represents a js variable initlization/declarion.
