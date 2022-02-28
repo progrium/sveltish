@@ -91,7 +91,7 @@ func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
 		fn,
 		lexRewriteVarNames,
 		func(data, name []byte) bool {
-			return bytes.Compare(data, name) != 0
+			return bytes.Compare(data, name) == 0
 		},
 	}
 }

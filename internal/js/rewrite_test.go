@@ -90,9 +90,12 @@ func TestLexRewriteAssignment(t *testing.T) {
 			}}
 
 			foundTargets := [][]byte{}
-			rw := NewAssignmentRewriter(s, func(_ int, _ string, _ Var, data []byte) []byte {
-				foundTargets = append(foundTargets, data)
+			rw := NewAssignmentRewriter(s, func(_ int, name string, _ Var, data []byte) []byte {
+				if !bytes.HasPrefix(data, []byte(name)) {
+					t.Fatalf("Expected name, %q, to be in %q", name, data)
+				}
 
+				foundTargets = append(foundTargets, data)
 				return testRewriteValue
 			})
 			result, _ := rw.Rewrite(td.input)
@@ -144,6 +147,14 @@ func TestLexRewriteVarNames(t *testing.T) {
 			},
 			[]byte("REWRITTEN = REWRITTEN.method();"),
 		},
+		{
+			"SkippedVarNames",
+			[]byte("value = skip.method();"),
+			[][]byte{
+				[]byte("value"),
+			},
+			[]byte("REWRITTEN = skip.method();"),
+		},
 	}
 
 	for _, td := range testData {
@@ -155,9 +166,12 @@ func TestLexRewriteVarNames(t *testing.T) {
 			}}
 
 			foundTargets := [][]byte{}
-			rw := NewVarNameRewriter(s, func(_ int, _ string, _ Var, data []byte) []byte {
-				foundTargets = append(foundTargets, data)
+			rw := NewVarNameRewriter(s, func(_ int, name string, _ Var, data []byte) []byte {
+				if bytes.Compare([]byte(name), data) != 0 {
+					t.Fatalf("Expected name, %q, to be in %q", name, data)
+				}
 
+				foundTargets = append(foundTargets, data)
 				return testRewriteValue
 			})
 			result, _ := rw.Rewrite(td.input)
