@@ -82,6 +82,12 @@ func (n *Script) RewriteForInstance(
 			updsData := [][]byte{}
 			for _, r := range ratvRoots {
 				updData, updInfo := r.rewriteAssignments(rw)
+
+				if len(r.name) == 0 {
+					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite(updData)
+					updInfo = MergeVarsInfo(updInfo, varNameInfo)
+				}
+
 				updsData = append(
 					updsData,
 					wrapUpd(updInfo, updData),

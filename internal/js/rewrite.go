@@ -109,6 +109,10 @@ func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, *VarsInfo) {
 				}
 
 				info.insert(i, name)
+
+				if rw.fn == nil {
+					return currData
+				}
 				return rw.fn(i, name, v, currData)
 			}
 		}
