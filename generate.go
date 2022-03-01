@@ -1,6 +1,7 @@
 package sveltish
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
@@ -9,8 +10,6 @@ import (
 )
 
 func GenerateJS(c *Component) ([]byte, error) {
-	rootVars := c.JS.RootVars()
-
 	decStmts := []string{}
 	setStmts := []string{}
 	mntStmts := []string{}
@@ -65,31 +64,27 @@ func GenerateJS(c *Component) ([]byte, error) {
 				)
 			}
 		case *html.ExprNode:
-			valName := fmt.Sprintf("%s_value", nv.name)
-			varNames := []string{}
-			valDirty := 0
-			valContent := node.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
-				varNames = append(varNames, jsNV.Name)
-				valDirty += 1 << i
-
-				return []byte(generateCtxLookup(i, jsNV))
+			rw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
+				return generateCtxLookup(i, name)
 			})
-			setVal := fmt.Sprintf("%s = %s", valName, valContent)
+			valContent, info := node.RewriteJs(rw)
 
+			valName := fmt.Sprintf("%s_value", nv.name)
 			decStmts = append(
 				decStmts,
-				fmt.Sprintf("let %s", setVal),
+				fmt.Sprintf("let %s = %s", valName, valContent),
 			)
 			setStmts = append(
 				setStmts,
 				fmt.Sprintf("%s = text(%s)", nv.name, valName),
 			)
-			if valDirty != 0 {
+
+			if valDirty := info.Dirty(); valDirty != 0 {
 				updStmts = append(
 					updStmts,
 					fmt.Sprintf(
 						"if (dirty & /*%s*/ %d && %s !== (%s = %s)) set_data(%s, %s)",
-						strings.Join(varNames, " "),
+						strings.Join(info.Names(), " "),
 						valDirty,
 						valName,
 						valName,
@@ -103,16 +98,12 @@ func GenerateJS(c *Component) ([]byte, error) {
 
 		if el, ok := nv.node.(html.Element); ok {
 			for _, attr := range el.Attrs() {
-				attName := generateAttrName(nv.name, attr)
-				varNames := []string{}
-				attrDirty := 0
-				attContent := attr.JsContent(rootVars, func(i int, jsNV *js.NamedVar, _ []byte) []byte {
-					varNames = append(varNames, jsNV.Name)
-					attrDirty += 1 << i
-
-					return []byte(generateCtxLookup(i, jsNV))
+				rw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
+					return generateCtxLookup(i, name)
 				})
+				attContent, info := attr.RewriteJs(rw)
 
+				attName := generateAttrName(nv.name, attr)
 				decStmts = append(
 					decStmts,
 					fmt.Sprintf("let %s", attName),
@@ -128,12 +119,12 @@ func GenerateJS(c *Component) ([]byte, error) {
 					setStmts,
 					setStmt,
 				)
-				if attrDirty != 0 {
+				if attrDirty := info.Dirty(); attrDirty != 0 {
 					updStmts = append(
 						updStmts,
 						fmt.Sprintf(
 							"if (dirty & /*%s*/ %d) %s",
-							strings.Join(varNames, " "),
+							strings.Join(info.Names(), " "),
 							attrDirty,
 							setStmt,
 						),
@@ -142,6 +133,37 @@ func GenerateJS(c *Component) ([]byte, error) {
 			}
 		}
 	}
+
+	rw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
+		newData := [][]byte{}
+		newData = append(newData, []byte(fmt.Sprintf("$$invalidate(%d, ", i)))
+		newData = append(newData, data)
+		newData = append(newData, []byte(")"))
+		return bytes.Join(newData, nil)
+	})
+	data, info := c.JS.RewriteForInstance(
+		rw,
+		func(wrapUpds func(js.WrapUpdFn) []byte) []byte {
+			wrpData := [][]byte{}
+			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
+			wrpData = append(
+				wrpData,
+				wrapUpds(func(info *js.VarsInfo, updData []byte) []byte {
+					return []byte(fmt.Sprintf(
+						"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
+						strings.Join(info.Names(), " "),
+						info.Dirty(),
+						updData,
+					))
+				}),
+			)
+			wrpData = append(wrpData, []byte("}\n"))
+
+			return bytes.Join(wrpData, nil)
+		},
+	)
+	instBody := string(data)
+	instReturns := info.Names()
 
 	s := &js.Source{}
 	s.Stmt(`import {
@@ -193,16 +215,8 @@ func GenerateJS(c *Component) ([]byte, error) {
 	s.Line("")
 	if c.JS != nil {
 		s.Func("instance", []string{"$$self", "$$props", "$$invalidate"}, func(s *js.Source) {
-			c.JS.WrapAssignments(func(i int, _ *js.NamedVar) (string, string) {
-				return fmt.Sprintf("$$invalidate(%d, ", i), ")"
-			})
-			s.Line(c.JS.Js())
-
-			names := []string{}
-			for _, v := range rootVars {
-				names = append(names, v.Name)
-			}
-			s.Stmt("return [" + strings.Join(names, ", ") + "]")
+			s.Line(instBody)
+			s.Stmt("return [" + strings.Join(instReturns, ", ") + "]")
 		})
 	}
 	s.Line("")
@@ -224,6 +238,6 @@ func generateAttrName(nodeName string, attr html.Attr) string {
 	return fmt.Sprintf("%s_%s_value", nodeName, attrName)
 }
 
-func generateCtxLookup(i int, jsNV *js.NamedVar) string {
-	return fmt.Sprintf("/* %s */ ctx[%d]", jsNV.Name, i)
+func generateCtxLookup(i int, name string) []byte {
+	return []byte(fmt.Sprintf("/* %s */ ctx[%d]", name, i))
 }

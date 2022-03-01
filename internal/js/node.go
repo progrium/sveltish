@@ -18,64 +18,118 @@ type Var interface {
 	VarNames() []string
 }
 
-type NamedVar struct {
-	Name string
-	Node Var
-}
-type wrapFunc func(int, *NamedVar) (string, string)
-type wrapAssignmenter interface {
-	wrapAssignments([]*NamedVar, wrapFunc)
-}
-
 // A Script node represents a full js script tag.
 type Script struct {
 	roots []Node
 }
 
-func (n *Script) Js() string {
-	js := ""
-	for _, n := range n.roots {
-		js += n.Js()
-	}
-	return js
+type rewriteAssignmenter interface {
+	rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo)
 }
 
-func (n *Script) RootVars() []*NamedVar {
-	vars := []*NamedVar{}
+type WrapUpdFn func(*VarsInfo, []byte) []byte
+type WrapUpdsFn func(func(WrapUpdFn) []byte) []byte
+
+// RewriteForInstance creates the js for the svelet runtime instance function
+func (n *Script) RewriteForInstance(
+	rw VarRewriter,
+	wrapUpds WrapUpdsFn,
+) ([]byte, *VarsInfo) {
+	nrmlRoots := []Node{}
+	ratvRoots := []*LabelNode{}
+	for _, n := range n.roots {
+		if ln, ok := n.(*LabelNode); ok && ln.IsReactive() {
+			ratvRoots = append(ratvRoots, ln)
+			continue
+		}
+
+		nrmlRoots = append(nrmlRoots, n)
+	}
+
+	info := NewEmptyVarsInfo()
+	i := 0
+	for _, v := range n.rootVars() {
+		for _, name := range v.VarNames() {
+			info.insert(i, name)
+			i += 1
+		}
+	}
+
+	data := [][]byte{}
+	for _, r := range ratvRoots {
+		if len(r.name) == 0 {
+			continue
+		}
+
+		data = append(data, []byte("\nlet "+string(r.name)+";"))
+	}
+
+	for _, r := range nrmlRoots {
+		if n, ok := r.(rewriteAssignmenter); ok {
+			nData, _ := n.rewriteAssignments(rw)
+			data = append(data, nData)
+		} else {
+			data = append(data, []byte(r.Js()))
+		}
+	}
+	if len(ratvRoots) == 0 {
+		return bytes.Join(data, nil), info
+	}
+
+	data = append(
+		data,
+		wrapUpds(func(wrapUpd WrapUpdFn) []byte {
+			updsData := [][]byte{}
+			for _, r := range ratvRoots {
+				updData, updInfo := r.rewriteAssignments(rw)
+
+				if len(r.name) == 0 {
+					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite(updData)
+					updInfo = MergeVarsInfo(updInfo, varNameInfo)
+				}
+
+				updsData = append(
+					updsData,
+					wrapUpd(updInfo, updData),
+				)
+			}
+			return bytes.Join(updsData, nil)
+		}),
+	)
+
+	return bytes.Join(data, nil), info
+}
+
+func (n *Script) Js() string {
+	return noRewriteJs(n)
+}
+
+func (n *Script) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data := [][]byte{}
+	info := []*VarsInfo{}
+	for _, n := range n.roots {
+		if ra, ok := n.(rewriteAssignmenter); ok {
+			rootData, rootInfo := ra.rewriteAssignments(rw)
+			data = append(data, rootData)
+			info = append(info, rootInfo)
+		} else {
+			data = append(data, []byte(n.Js()))
+		}
+	}
+	return bytes.Join(data, nil), MergeVarsInfo(info...)
+}
+
+func (n *Script) rootVars() []Var {
+	vars := []Var{}
 	for _, r := range n.roots {
 		v, ok := r.(Var)
 		if !ok {
 			continue
 		}
 
-		for _, name := range v.VarNames() {
-			vars = append(vars, &NamedVar{
-				Name: name,
-				Node: v,
-			})
-		}
+		vars = append(vars, v)
 	}
 	return vars
-}
-
-func (n *Script) WrapAssignments(wrap wrapFunc) {
-	vars := n.RootVars()
-	if len(vars) == 0 {
-		return
-	}
-
-	n.wrapAssignments(vars, wrap)
-}
-
-func (n *Script) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	for _, r := range n.roots {
-		switch n := r.(type) {
-		case *BlockNode:
-			continue
-		case wrapAssignmenter:
-			n.wrapAssignments(vars, wrap)
-		}
-	}
 }
 
 func (n *Script) appendChild(child Node) {
@@ -108,25 +162,102 @@ func (cs *childComments) pop() {
 	cs.nodes = cs.nodes[:len(cs.nodes)-1]
 }
 
-func (cs *childComments) injectBetween(allData ...string) string {
-	js := ""
+func (cs *childComments) injectBetween(allData ...[]byte) []byte {
+	js := []byte{}
 	notSet := 0
 	for i, data := range allData {
-		if data == "" {
+		if len(data) == 0 {
 			notSet += 1
 			continue
 		}
 
-		js += data
+		js = append(js, data...)
 
 		for len(cs.nodes) <= i-notSet {
 			cs.appendNil()
 		}
 		if n := cs.nodes[i-notSet]; n != nil {
-			js += n.Js()
+			js = append(js, []byte(n.Js())...)
 		}
 	}
 	return js
+}
+
+// A LabelNode reprents a labeled js statement.
+type LabelNode struct {
+	label    []byte
+	name     []byte
+	equals   []byte
+	body     Node
+	simi     []byte
+	comments *childComments
+}
+
+func (n *LabelNode) VarType() string {
+	return trimLeftSpaces(n.label)
+}
+
+func (n *LabelNode) VarNames() []string {
+	if len(n.name) == 0 {
+		return nil
+	}
+
+	//TODO, add support for destructuring
+	return []string{trimLeftSpaces(n.name)}
+}
+
+func (n *LabelNode) Label() string {
+	return strings.TrimFunc(string(n.label), func(r rune) bool {
+		switch {
+		case unicode.IsSpace(r):
+			return true
+		case r == rune(labelSufix[0]):
+			return true
+		}
+
+		return false
+	})
+}
+
+const reactiveLabel = "$"
+
+func (n *LabelNode) IsReactive() bool {
+	return n.Label() == reactiveLabel
+}
+
+func (n *LabelNode) Js() string {
+	return noRewriteJs(n)
+}
+
+func (n *LabelNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data := [][]byte{}
+	info := []*VarsInfo{}
+
+	data = append(data, n.label)
+
+	if len(n.name) != 0 {
+		data = append(data, n.name)
+		data = append(data, n.equals)
+	}
+
+	if ra, ok := n.body.(rewriteAssignmenter); ok {
+		raData, raInfo := ra.rewriteAssignments(rw)
+		data = append(data, raData)
+		info = append(info, raInfo)
+	} else {
+		data = append(data, []byte(n.body.Js()))
+	}
+
+	if len(n.name) == 0 {
+		return n.comments.injectBetween(data...), MergeVarsInfo(info...)
+	}
+
+	data = append(data, n.simi)
+	allData := n.comments.injectBetween(data...)
+	if rw == nil {
+		return allData, NewEmptyVarsInfo()
+	}
+	return rw.Rewrite(allData)
 }
 
 // A VarNode represents a js variable initlization/declarion.
@@ -137,24 +268,6 @@ type VarNode struct {
 	value    *BlockNode
 	simi     []byte
 	comments *childComments
-}
-
-func (n *VarNode) Js() string {
-	if len(n.equals) == 0 {
-		return n.comments.injectBetween(
-			string(n.keyword),
-			string(n.name),
-			string(n.simi),
-		)
-	}
-
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.name),
-		string(n.equals),
-		n.value.Js(),
-		string(n.simi),
-	)
 }
 
 func (n *VarNode) VarType() string {
@@ -170,12 +283,27 @@ func (n *VarNode) VarNames() []string {
 	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *VarNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	if n.value == nil {
-		return
+func (n *VarNode) Js() string {
+	return noRewriteJs(n)
+}
+
+func (n *VarNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data := [][]byte{}
+
+	data = append(data, n.keyword)
+	data = append(data, n.name)
+
+	if len(n.equals) != 0 {
+		data = append(data, n.equals)
+
+		valueData, info := n.value.rewriteAssignments(rw)
+		data = append(data, valueData)
+		data = append(data, n.simi)
+		return n.comments.injectBetween(data...), info
 	}
 
-	n.value.wrapAssignments(vars, wrap)
+	data = append(data, n.simi)
+	return n.comments.injectBetween(data...), NewEmptyVarsInfo()
 }
 
 // A FuncNode represents a js function.
@@ -185,15 +313,6 @@ type FuncNode struct {
 	params   []byte
 	body     *BlockNode
 	comments *childComments
-}
-
-func (n *FuncNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.name),
-		string(n.params),
-		n.body.Js(),
-	)
 }
 
 func (n *FuncNode) VarType() string {
@@ -208,8 +327,18 @@ func (n *FuncNode) VarNames() []string {
 	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *FuncNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+func (n *FuncNode) Js() string {
+	return noRewriteJs(n)
+}
+
+func (n *FuncNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data, info := n.body.rewriteAssignments(rw)
+	return n.comments.injectBetween(
+		n.keyword,
+		n.name,
+		n.params,
+		data,
+	), info
 }
 
 // A ClassNode represents a js class.
@@ -222,16 +351,6 @@ type ClassNode struct {
 	comments       *childComments
 }
 
-func (n *ClassNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.classKeyword),
-		string(n.name),
-		string(n.extendsKeyword),
-		string(n.superName),
-		n.body.Js(),
-	)
-}
-
 func (n *ClassNode) VarNames() []string {
 	if len(n.name) == 0 {
 		return nil
@@ -240,8 +359,19 @@ func (n *ClassNode) VarNames() []string {
 	return []string{trimLeftSpaces(n.name)}
 }
 
-func (n *ClassNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+func (n *ClassNode) Js() string {
+	return noRewriteJs(n)
+}
+
+func (n *ClassNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data, info := n.body.rewriteAssignments(rw)
+	return n.comments.injectBetween(
+		n.classKeyword,
+		n.name,
+		n.extendsKeyword,
+		n.superName,
+		data,
+	), info
 }
 
 // An IfNode represents a js if/else[if] statement.
@@ -257,43 +387,61 @@ type IfNode struct {
 
 func (n *IfNode) Js() string {
 	if len(n.elseKeyword) == 0 {
-		return n.comments.injectBetween(
-			string(n.ifKeyword),
-			string(n.params),
-			n.ifBody.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.ifKeyword,
+			n.params,
+			[]byte(n.ifBody.Js()),
+		))
 	}
 
 	if n.elseBody != nil {
-		return n.comments.injectBetween(
-			string(n.ifKeyword),
-			string(n.params),
-			n.ifBody.Js(),
-			string(n.elseKeyword),
-			n.elseBody.Js(),
-		)
+		return string(n.comments.injectBetween(
+			n.ifKeyword,
+			n.params,
+			[]byte(n.ifBody.Js()),
+			n.elseKeyword,
+			[]byte(n.elseBody.Js()),
+		))
 	}
 
-	js := n.comments.injectBetween(
-		string(n.ifKeyword),
-		string(n.params),
-		n.ifBody.Js(),
-		string(n.elseKeyword),
-	)
+	js := string(n.comments.injectBetween(
+		n.ifKeyword,
+		n.params,
+		[]byte(n.ifBody.Js()),
+		n.elseKeyword,
+	))
 	js += n.elseIfNode.Js()
 	return js
 }
 
-func (n *IfNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.ifBody.wrapAssignments(vars, wrap)
+func (n *IfNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data := [][]byte{}
+	info := []*VarsInfo{}
+
+	data = append(data, n.ifKeyword)
+	data = append(data, n.params)
+
+	ifData, ifInfo := n.ifBody.rewriteAssignments(rw)
+	data = append(data, ifData)
+	info = append(info, ifInfo)
 
 	if n.elseBody != nil {
-		n.elseBody.wrapAssignments(vars, wrap)
+		data = append(data, n.elseKeyword)
+
+		elseData, elseInfo := n.elseBody.rewriteAssignments(rw)
+		data = append(data, elseData)
+		info = append(info, elseInfo)
 	}
 
 	if n.elseIfNode != nil {
-		n.elseIfNode.wrapAssignments(vars, wrap)
+		data = append(data, n.elseKeyword)
+
+		elseIfData, elseIfInfo := n.elseIfNode.rewriteAssignments(rw)
+		data = append(data, elseIfData)
+		info = append(info, elseIfInfo)
 	}
+
+	return n.comments.injectBetween(data...), MergeVarsInfo(info...)
 }
 
 // A basicCtrlStructNode represents basic js controll structures.
@@ -305,15 +453,16 @@ type basicCtrlStructNode struct {
 }
 
 func (n *basicCtrlStructNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.keyword),
-		string(n.params),
-		n.body.Js(),
-	)
+	return noRewriteJs(n)
 }
 
-func (n *basicCtrlStructNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+func (n *basicCtrlStructNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data, info := n.body.rewriteAssignments(rw)
+	return n.comments.injectBetween(
+		n.keyword,
+		n.params,
+		data,
+	), info
 }
 
 // A SwitchNode represents a js switch statement.
@@ -347,17 +496,18 @@ type DoWhileLoopNode struct {
 }
 
 func (n *DoWhileLoopNode) Js() string {
-	return n.comments.injectBetween(
-		string(n.doKeyword),
-		n.body.Js(),
-		string(n.whileKeyword),
-		string(n.params),
-		string(n.simi),
-	)
+	return noRewriteJs(n)
 }
 
-func (n *DoWhileLoopNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.body.wrapAssignments(vars, wrap)
+func (n *DoWhileLoopNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data, info := n.body.rewriteAssignments(rw)
+	return n.comments.injectBetween(
+		n.doKeyword,
+		data,
+		n.whileKeyword,
+		n.params,
+		n.simi,
+	), info
 }
 
 // A TryCatchNode represents a js try catch statement.
@@ -373,34 +523,32 @@ type TryCatchNode struct {
 }
 
 func (n *TryCatchNode) Js() string {
-	if len(finallyKeyword) == 0 {
-		return n.comments.injectBetween(
-			string(n.tryKeyword),
-			n.tryBody.Js(),
-			string(n.catchKeyword),
-			string(n.params),
-			n.catchBody.Js(),
-		)
-	}
-
-	return n.comments.injectBetween(
-		string(n.tryKeyword),
-		n.tryBody.Js(),
-		string(n.catchKeyword),
-		string(n.params),
-		n.catchBody.Js(),
-		string(n.finallyKeyword),
-		n.finallyBody.Js(),
-	)
+	return noRewriteJs(n)
 }
 
-func (n *TryCatchNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.tryBody.wrapAssignments(vars, wrap)
-	n.catchBody.wrapAssignments(vars, wrap)
+func (n *TryCatchNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	data := [][]byte{}
 
-	if n.finallyBody != nil {
-		n.finallyBody.wrapAssignments(vars, wrap)
+	data = append(data, n.tryKeyword)
+
+	tryData, tryInfo := n.tryBody.rewriteAssignments(rw)
+	data = append(data, tryData)
+	data = append(data, n.catchKeyword)
+	data = append(data, n.params)
+
+	catchData, catchInfo := n.catchBody.rewriteAssignments(rw)
+	data = append(data, catchData)
+
+	if n.finallyBody == nil {
+		return n.comments.injectBetween(data...), MergeVarsInfo(tryInfo, catchInfo)
 	}
+
+	data = append(data, n.finallyKeyword)
+
+	finallyData, finallyInfo := n.finallyBody.rewriteAssignments(rw)
+	data = append(data, finallyData)
+
+	return n.comments.injectBetween(data...), MergeVarsInfo(tryInfo, catchInfo, finallyInfo)
 }
 
 // A BlockNode represents a block of js code that is not one of the other node types.
@@ -409,21 +557,20 @@ type BlockNode struct {
 }
 
 func (n *BlockNode) Js() string {
-	return string(n.content)
+	return noRewriteJs(n)
 }
 
-func (n *BlockNode) wrapAssignments(vars []*NamedVar, wrap wrapFunc) {
-	n.content = RewriteAssignments(n.content, func(data []byte) []byte {
-		for i, nv := range vars {
-			if !bytes.HasPrefix(data, []byte(nv.Name)) {
-				continue
-			}
+func (n *BlockNode) rewriteAssignments(rw VarRewriter) ([]byte, *VarsInfo) {
+	if rw == nil {
+		return n.content, NewEmptyVarsInfo()
+	}
 
-			prefix, sufix := wrap(i, nv)
-			return append(append([]byte(prefix), data...), []byte(sufix)...)
-		}
-		return data
-	})
+	return rw.Rewrite(n.content)
+}
+
+func noRewriteJs(rw rewriteAssignmenter) string {
+	data, _ := rw.rewriteAssignments(nil)
+	return string(data)
 }
 
 func trimLeftSpaces(data []byte) string {

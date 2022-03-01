@@ -21,6 +21,7 @@ const (
 	tmplQuoteExprOpen  = "${"
 	tmplQuoteExprClose = "}"
 	regexQuote         = "/"
+	labelSufix         = ":"
 	varKeyword         = "var"
 	letKeyword         = "let"
 	constKeyword       = "const"
@@ -58,6 +59,7 @@ const (
 	// lexScript types
 	keywordType
 	varNameType
+	labelType
 	eqOpType
 	simiOpType
 	paramsType
@@ -80,6 +82,8 @@ func (tt tokenType) String() string {
 		return "keyword"
 	case varNameType:
 		return "varName"
+	case labelType:
+		return "label"
 	case eqOpType:
 		return "eqOp"
 	case simiOpType:
@@ -317,7 +321,7 @@ func (lex *codeLexer) acceptKeyword(kw string) bool {
 }
 
 const (
-	vaildFirstVarChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+	vaildFirstVarChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_$"
 	validVarChars      = vaildFirstVarChars + "0123456789"
 )
 
@@ -343,6 +347,22 @@ func (lex *codeLexer) acceptVarName() bool {
 			return true
 		}
 	}
+}
+
+// acceptLabel will add a vaild label to the current lex token
+func (lex *codeLexer) acceptLabel() bool {
+	currPos := lex.nextPos
+	if !lex.acceptVarName() {
+		return false
+	}
+
+	lex.acceptSpaces()
+	if !lex.acceptExact(labelSufix) {
+		lex.nextPos = currPos
+		return false
+	}
+
+	return true
 }
 
 // acceptCodeBlock will add a everything until an expr end to the current lex token, i.e. it always return true
@@ -413,6 +433,9 @@ func lexScript(lastLex lexFn) lexFn {
 		case lex.acceptExact(simiOp):
 			lex.emit(simiOpType)
 			return lexScriptFn
+		case lex.acceptLabel():
+			lex.emit(labelType)
+			return lexLabel(lexScriptFn)
 		case lex.acceptKeyword(varKeyword), lex.acceptKeyword(letKeyword), lex.acceptKeyword(constKeyword):
 			lex.emit(keywordType)
 			return lexVar(lexScriptFn)
@@ -468,6 +491,49 @@ func lexVar(lastLex lexFn) lexFn {
 			lex.emit(simiOpType)
 		}
 		return lastLex
+	}
+}
+
+// lexLabel will tokenize a javascript label, starting after the label
+func lexLabel(lastLex lexFn) lexFn {
+	return func(lex *codeLexer) lexFn {
+		switch {
+		case lex.acceptKeyword(ifKeyword):
+			lex.emit(keywordType)
+			return lexIfStmt(lastLex)
+		case lex.acceptKeyword(forKeyword), lex.acceptKeyword(whileKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(switchKeyword), lex.acceptKeyword(withKeyword):
+			lex.emit(keywordType)
+			return lexCtrlStruct(lastLex)
+		case lex.acceptExact(doKeyword):
+			lex.emit(keywordType)
+			return lexDoWhile(lastLex)
+		case lex.acceptExact(tryKeyword):
+			lex.emit(keywordType)
+			return lexTryCatch(lastLex)
+		case lex.acceptExact(classKeyword):
+			lex.emit(keywordType)
+			return lexClass(lastLex)
+		case lex.acceptExact(curlyOpen):
+			lex.skip(newCurlyGroupSkipper(), nil)
+			lex.emit(codeBlockType)
+			return lastLex
+		case lex.acceptVarName():
+			lex.emit(varNameType)
+
+			if !lex.acceptExact(eqOp) {
+				lex.emitError("Variable name that is not being assigned following label")
+				return nil
+			}
+			lex.emit(eqOpType)
+
+			lex.acceptCodeBlock()
+			lex.emit(codeBlockType)
+
+			return lastLex
+		default:
+			lex.emitError("Un labelable statment following label")
+			return nil
+		}
 	}
 }
 

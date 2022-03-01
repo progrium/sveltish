@@ -40,11 +40,6 @@ type Contenter interface {
 	Content() string
 }
 
-// All types that have javacript content implement the Contenter interface.
-type JsContenter interface {
-	JsContent([]*js.NamedVar, func(int, *js.NamedVar, []byte) []byte) string
-}
-
 // A Doc node represents a full html document.
 type Doc struct {
 	id    NodeId
@@ -152,18 +147,8 @@ func (n *ExprNode) Content() string {
 	return "{" + n.js + "}"
 }
 
-func (n *ExprNode) JsContent(vars []*js.NamedVar, rw func(int, *js.NamedVar, []byte) []byte) string {
-	rwData := js.RewriteVarNames([]byte(n.js), func(data []byte) []byte {
-		for i, v := range vars {
-			if string(data) != v.Name {
-				continue
-			}
-
-			return rw(i, v, data)
-		}
-		return data
-	})
-	return string(rwData)
+func (n *ExprNode) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
+	return rw.Rewrite([]byte(n.js))
 }
 
 // IsContentWhiteSpace will check if all the .Content() only contains white

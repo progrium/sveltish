@@ -26,7 +26,7 @@ func TestLexRewriteAssignment(t *testing.T) {
 			[]byte("value.test = 'test';"),
 		},
 		{
-			"JustAnAssignment",
+			"SingleAssignment",
 			[]byte("value = 'some test';"),
 			[][]byte{
 				[]byte("value = 'some test'"),
@@ -34,10 +34,10 @@ func TestLexRewriteAssignment(t *testing.T) {
 			[]byte("REWRITTEN;"),
 		},
 		{
-			"JustPlusAssignment",
-			[]byte("value =+ 'some test';"),
+			"PlusAssignment",
+			[]byte("value += 'some test';"),
 			[][]byte{
-				[]byte("value =+ 'some test'"),
+				[]byte("value += 'some test'"),
 			},
 			[]byte("REWRITTEN;"),
 		},
@@ -84,12 +84,21 @@ func TestLexRewriteAssignment(t *testing.T) {
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			foundTargets := [][]byte{}
-			result := RewriteAssignments(td.input, func(data []byte) []byte {
-				foundTargets = append(foundTargets, data)
+			s := &Script{[]Node{
+				&VarNode{[]byte("let"), []byte(" value"), nil, nil, nil, nil},
+				&VarNode{[]byte("let"), []byte(" another"), nil, nil, nil, nil},
+			}}
 
+			foundTargets := [][]byte{}
+			rw := NewAssignmentRewriter(s, func(_ int, name string, _ Var, data []byte) []byte {
+				if !bytes.HasPrefix(data, []byte(name)) {
+					t.Fatalf("Expected name, %q, to be in %q", name, data)
+				}
+
+				foundTargets = append(foundTargets, data)
 				return testRewriteValue
 			})
+			result, _ := rw.Rewrite(td.input)
 
 			if len(td.targets) != len(foundTargets) {
 				t.Fatalf("Expected to find %d targets but got %d", len(td.targets), len(foundTargets))
@@ -123,32 +132,49 @@ func TestLexRewriteVarNames(t *testing.T) {
 		},
 		{
 			"SingleVarName",
-			[]byte("test = 'value';"),
+			[]byte("value = 'test';"),
 			[][]byte{
-				[]byte("test"),
+				[]byte("value"),
 			},
-			[]byte("REWRITTEN = 'value';"),
+			[]byte("REWRITTEN = 'test';"),
 		},
 		{
 			"MultipleVarNames",
-			[]byte("test = value.method();"),
+			[]byte("value = another.method();"),
 			[][]byte{
-				[]byte("test"),
 				[]byte("value"),
+				[]byte("another"),
 			},
 			[]byte("REWRITTEN = REWRITTEN.method();"),
+		},
+		{
+			"SkippedVarNames",
+			[]byte("value = skip.method();"),
+			[][]byte{
+				[]byte("value"),
+			},
+			[]byte("REWRITTEN = skip.method();"),
 		},
 	}
 
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			foundTargets := [][]byte{}
-			result := RewriteVarNames(td.input, func(data []byte) []byte {
-				foundTargets = append(foundTargets, data)
+			s := &Script{[]Node{
+				&VarNode{[]byte("let"), []byte(" value"), nil, nil, nil, nil},
+				&VarNode{[]byte("let"), []byte(" another"), nil, nil, nil, nil},
+			}}
 
+			foundTargets := [][]byte{}
+			rw := NewVarNameRewriter(s, func(_ int, name string, _ Var, data []byte) []byte {
+				if bytes.Compare([]byte(name), data) != 0 {
+					t.Fatalf("Expected name, %q, to be in %q", name, data)
+				}
+
+				foundTargets = append(foundTargets, data)
 				return testRewriteValue
 			})
+			result, _ := rw.Rewrite(td.input)
 
 			if len(td.targets) != len(foundTargets) {
 				t.Fatalf("Expected to find %d targets but got %d", len(td.targets), len(foundTargets))

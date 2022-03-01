@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestParseAndPrint(t *testing.T) {
+func TestParseAndReprint(t *testing.T) {
 	testData := []struct {
 		name  string
 		input []byte
@@ -76,6 +76,26 @@ func TestParseAndPrint(t *testing.T) {
 				i++;
 			} while(i<100);`,
 		)},
+		{
+			"LabeledAssignment",
+			[]byte("$: some = 'value';"),
+		},
+		{
+			"LabeledStatment",
+			[]byte(
+				`$: if (test = 'value') {
+					func();
+				}`,
+			),
+		},
+		{
+			"LabeledBlock",
+			[]byte(
+				`$: {
+					func();
+				}`,
+			),
+		},
 		{"MultipleStatements", []byte(
 			`for (let i=0; i<100; i++) {
 				func(i);
@@ -113,3 +133,62 @@ func TestParseAndPrint(t *testing.T) {
 		})
 	}
 }
+
+/*func TestParseAndPrintReactive(t *testing.T) {
+	testData := []struct {
+		name   string
+		input  []byte
+		output string
+	}{
+		{
+			"LabeledAssignment",
+			[]byte("$: some = 'value';"),
+			`
+let  some;
+$$self.$$.update = () => {
+$: some = 'value';
+};`,
+		},
+		{
+			"LabeledStatment",
+			[]byte(
+				`$: if (test = 'value') {
+					func();
+				}`,
+			),
+			`
+$$self.$$.update = () => {
+$: if (test = 'value') {
+					func();
+				}
+};`,
+		},
+		{
+			"LabeledBlock",
+			[]byte(
+				`$: {
+					func();
+				}`,
+			),
+			`
+$$self.$$.update = () => {
+$: {
+					func();
+				}
+};`,
+		},
+	}
+	for _, td := range testData {
+		td := td
+		t.Run(td.name, func(t *testing.T) {
+			script, err := Parse(bytes.NewReader(td.input))
+			if err != nil {
+				t.Fatalf("Parse return error: %q", err.Error())
+			}
+
+			if js := script.Js(); js != td.output {
+				t.Fatalf("Expected %q but output %q", td.output, js)
+			}
+		})
+	}
+}*/

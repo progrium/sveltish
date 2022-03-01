@@ -1,11 +1,125 @@
 package js
 
-import "fmt"
+import (
+	"bytes"
+)
 
-// RewriteAssignments will replace all assignments with the data returned from the callback.
-func RewriteAssignments(data []byte, rw rewriteFunc) []byte {
-	lex := startNewLexer(lexRewriteAssignments, data)
-	return rewriteParser(lex, rw)
+type VarRewriter interface {
+	Rewrite([]byte) ([]byte, *VarsInfo)
+}
+
+type VarsInfo struct {
+	indexes []int
+	names   []string
+}
+
+func NewEmptyVarsInfo() *VarsInfo {
+	return &VarsInfo{}
+}
+
+func MergeVarsInfo(allInfo ...*VarsInfo) *VarsInfo {
+	newInfo := NewEmptyVarsInfo()
+	for _, info := range allInfo {
+		for i, varIndex := range info.indexes {
+			varName := info.names[i]
+			newInfo.insert(varIndex, varName)
+		}
+	}
+	return newInfo
+}
+
+func (info *VarsInfo) Names() []string {
+	return info.names
+}
+
+func (info *VarsInfo) Dirty() int {
+	dirty := 0
+	for _, varIndex := range info.indexes {
+		dirty += 1 << varIndex
+	}
+	return dirty
+}
+
+func (info *VarsInfo) insert(newVarIndex int, newVarName string) {
+	for i, varIndex := range info.indexes {
+		if newVarIndex == varIndex {
+			if info.names[i] != newVarName {
+				panic("Trying to add multiple vars at the same index")
+			}
+			return
+		}
+		if newVarIndex < varIndex {
+			startIndexes := info.indexes[:i]
+			endIndexes := info.indexes[i:]
+			info.indexes = append(startIndexes, newVarIndex)
+			info.indexes = append(info.indexes, endIndexes...)
+
+			startNames := info.names[:i]
+			endNames := info.names[i:]
+			info.names = append(startNames, newVarName)
+			info.names = append(info.names, endNames...)
+			return
+		}
+	}
+	info.indexes = append(info.indexes, newVarIndex)
+	info.names = append(info.names, newVarName)
+}
+
+type RewriteFn func(int, string, Var, []byte) []byte
+
+type lexVarRewriter struct {
+	vars    []Var
+	fn      RewriteFn
+	lexInit func(lexFn) lexFn
+	hasVar  func([]byte, []byte) bool
+}
+
+func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+	return &lexVarRewriter{
+		s.rootVars(),
+		fn,
+		lexRewriteAssignments,
+		func(data, name []byte) bool {
+			return bytes.HasPrefix(data, name)
+		},
+	}
+}
+
+func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+	return &lexVarRewriter{
+		s.rootVars(),
+		fn,
+		lexRewriteVarNames,
+		func(data, name []byte) bool {
+			return bytes.Compare(data, name) == 0
+		},
+	}
+}
+
+func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, *VarsInfo) {
+	lex := startNewLexer(rw.lexInit, data)
+	info := NewEmptyVarsInfo()
+	newData := rewriteParser(lex, func(currData []byte) []byte {
+		i := -1
+		for _, v := range rw.vars {
+			for _, name := range v.VarNames() {
+				i += 1
+				if !rw.hasVar(currData, []byte(name)) {
+					continue
+				}
+
+				info.insert(i, name)
+
+				if rw.fn == nil {
+					return currData
+				}
+				return rw.fn(i, name, v, currData)
+			}
+		}
+		return currData
+	})
+
+	return newData, info
 }
 
 // lexAssignments will tokenize a javascript block (as output by lexScript) to find assignments.
@@ -84,12 +198,6 @@ func lexRewriteAssignments(lastLex lexFn) lexFn {
 	return lexRewriteAssignmentsFunc
 }
 
-// RewriteVarNames will replace all var names with the data returned from the callback.
-func RewriteVarNames(data []byte, rw rewriteFunc) []byte {
-	lex := startNewLexer(lexRewriteVarNames, data)
-	return rewriteParser(lex, rw)
-}
-
 // lexRewriteVarNames will tokenize a javascript block (as output by lexScript) to find variable names (and keywords).
 func lexRewriteVarNames(lastLex lexFn) lexFn {
 	var lexRewriteVarNamesFunc lexFn
@@ -151,24 +259,20 @@ func lexRewriteVarNames(lastLex lexFn) lexFn {
 	return lexRewriteVarNamesFunc
 }
 
-// A rewriteFunc will take lexer tokenType/data and return rewritten version of the data.
-type rewriteFunc func([]byte) []byte
-
 // rewriteParser will call the rewriteFunc for everything emited by the lexer, and merge the returned data.
-func rewriteParser(lex *lexer, rw rewriteFunc) []byte {
-	rwData := []byte{}
+func rewriteParser(lex *lexer, rw func([]byte) []byte) []byte {
+	rwData := [][]byte{}
 	for tt, data := lex.Next(); tt != eofType; {
 		switch tt {
 		case fragmentType, commentType:
-			rwData = append(rwData, data...)
+			rwData = append(rwData, data)
 		case targetType:
-			rwData = append(rwData, rw(data)...)
+			rwData = append(rwData, rw(data))
 		default:
-			fmt.Println(tt)
 			panic("Invalid token type emited from lexFn for rewriteParser")
 		}
 
 		tt, data = lex.Next()
 	}
-	return rwData
+	return bytes.Join(rwData, nil)
 }
