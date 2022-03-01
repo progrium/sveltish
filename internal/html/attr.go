@@ -12,20 +12,18 @@ import (
 // An attr represents an attribute on an html element.
 type Attr interface {
 	Name() string
+	Dir() (string, bool)
 	RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo)
-
-	//TODO, add for attributes with ":..." directives
-	//Dir() (string, bool)
 }
 
 func newAttr(data []byte) (Attr, error) {
 	prts := bytes.SplitN(data, []byte("="), 2)
 
-	namePrt := stripInitWhiteSpace(prts[0])
+	at := newAttrType(stripInitWhiteSpace(prts[0]))
 	if len(prts) == 1 {
 		return &staticAttr{
-			name:    string(namePrt),
-			content: "",
+			attrType: *at,
+			content:  "",
 		}, nil
 	}
 
@@ -33,8 +31,8 @@ func newAttr(data []byte) (Attr, error) {
 	index := indexStartExpr(valuePrt)
 	if index == -1 {
 		return &staticAttr{
-			name:    string(namePrt),
-			content: string(valuePrt),
+			attrType: *at,
+			content:  string(valuePrt),
 		}, nil
 	}
 
@@ -79,15 +77,15 @@ func newAttr(data []byte) (Attr, error) {
 
 	if len(tmpl) == 2 && len(tmpl[0]) == 0 && len(tmpl[1]) == 0 {
 		return &exprAttr{
-			name: string(namePrt),
-			expr: string(exprs[0]),
+			attrType: *at,
+			expr:     string(exprs[0]),
 		}, nil
 	}
 
 	return &tmplAttr{
-		name:  string(namePrt),
-		tmpl:  tmpl,
-		exprs: exprs,
+		attrType: *at,
+		tmpl:     tmpl,
+		exprs:    exprs,
 	}, nil
 }
 
@@ -107,13 +105,40 @@ func stripQuotes(data []byte) []byte {
 	return data[1 : len(data)-1]
 }
 
-type staticAttr struct {
-	name    string
-	content string
+type attrType struct {
+	name   string
+	dir    string
+	hasDir bool
 }
 
-func (attr *staticAttr) Name() string {
+func newAttrType(data []byte) *attrType {
+	prts := bytes.SplitN(data, []byte(":"), 2)
+	if len(prts) == 1 {
+		return &attrType{
+			name:   string(prts[0]),
+			dir:    "",
+			hasDir: false,
+		}
+	}
+
+	return &attrType{
+		name:   string(prts[0]),
+		dir:    string(prts[1]),
+		hasDir: true,
+	}
+}
+
+func (attr *attrType) Name() string {
 	return attr.name
+}
+
+func (attr *attrType) Dir() (string, bool) {
+	return attr.dir, attr.hasDir
+}
+
+type staticAttr struct {
+	attrType
+	content string
 }
 
 func (attr *staticAttr) Content() string {
@@ -126,12 +151,8 @@ func (attr *staticAttr) RewriteJs(_ js.VarRewriter) ([]byte, *js.VarsInfo) {
 }
 
 type exprAttr struct {
-	name string
+	attrType
 	expr string
-}
-
-func (attr *exprAttr) Name() string {
-	return attr.name
 }
 
 func (attr *exprAttr) Content() string {
@@ -143,13 +164,9 @@ func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 }
 
 type tmplAttr struct {
-	name  string
+	attrType
 	tmpl  []string
 	exprs []string
-}
-
-func (attr *tmplAttr) Name() string {
-	return attr.name
 }
 
 func (attr *tmplAttr) Content() string {
