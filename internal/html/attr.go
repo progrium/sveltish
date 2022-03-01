@@ -141,10 +141,6 @@ type staticAttr struct {
 	content string
 }
 
-func (attr *staticAttr) Content() string {
-	return attr.content
-}
-
 func (attr *staticAttr) RewriteJs(_ js.VarRewriter) ([]byte, *js.VarsInfo) {
 	data := []byte("'" + strings.ReplaceAll(attr.content, "'", `\'`) + "'")
 	return data, js.NewEmptyVarsInfo()
@@ -155,10 +151,6 @@ type exprAttr struct {
 	expr string
 }
 
-func (attr *exprAttr) Content() string {
-	return "{" + attr.expr + "}"
-}
-
 func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 	return rw.Rewrite([]byte(attr.expr))
 }
@@ -167,16 +159,6 @@ type tmplAttr struct {
 	attrType
 	tmpl  []string
 	exprs []string
-}
-
-func (attr *tmplAttr) Content() string {
-	c := attr.tmpl[0]
-	for i, expr := range attr.exprs {
-		c += "{" + expr + "}"
-		c += attr.tmpl[i+1]
-	}
-
-	return c
 }
 
 func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
