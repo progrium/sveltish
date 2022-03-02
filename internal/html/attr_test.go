@@ -12,6 +12,7 @@ func TestNewAttr(t *testing.T) {
 		input         []byte
 		attrType      string
 		attrName      string
+		attrDir       string
 		attrJsContent string //TODO, replace for Rewriter
 	}{
 		{
@@ -19,6 +20,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte("value"),
 			"static",
 			"value",
+			"",
 			"''",
 		},
 		{
@@ -26,6 +28,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte("data-value"),
 			"static",
 			"data-value",
+			"",
 			"''",
 		},
 		{
@@ -33,6 +36,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(" value"),
 			"static",
 			"value",
+			"",
 			"''",
 		},
 		{
@@ -40,6 +44,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value=""`),
 			"static",
 			"value",
+			"",
 			"''",
 		},
 		{
@@ -47,6 +52,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="test value"`),
 			"static",
 			"value",
+			"",
 			"'test value'",
 		},
 		{
@@ -54,6 +60,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="test'ng value"`),
 			"static",
 			"value",
+			"",
 			"'test\\'ng value'",
 		},
 		{
@@ -61,6 +68,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`data-value="test value"`),
 			"static",
 			"data-value",
+			"",
 			"'test value'",
 		},
 		{
@@ -68,13 +76,31 @@ func TestNewAttr(t *testing.T) {
 			[]byte(` value="test value"`),
 			"static",
 			"value",
+			"",
 			"'test value'",
+		},
+		{
+			"StringWithOnlyDir",
+			[]byte("class:name"),
+			"static",
+			"class",
+			"name",
+			"''",
+		},
+		{
+			"StringWithDirAndVal",
+			[]byte(`bind:innerText="Some Text"`),
+			"static",
+			"bind",
+			"innerText",
+			"'Some Text'",
 		},
 		{
 			"ExprWithJustAnExpr",
 			[]byte(`value="{testValue}"`),
 			"expr",
 			"value",
+			"",
 			"testValue",
 		},
 		{
@@ -82,6 +108,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="{testValue === ` + "`some ${value}`" + `}"`),
 			"expr",
 			"value",
+			"",
 			"testValue === `some ${value}`",
 		},
 		{
@@ -89,6 +116,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`data-value="{testValue}"`),
 			"expr",
 			"data-value",
+			"",
 			"testValue",
 		},
 		{
@@ -96,13 +124,23 @@ func TestNewAttr(t *testing.T) {
 			[]byte(` value="{testValue}"`),
 			"expr",
 			"value",
+			"",
 			"testValue",
+		},
+		{
+			"ExprWithDirAndVal",
+			[]byte(`on:click="{handleClick}"`),
+			"expr",
+			"on",
+			"click",
+			"handleClick",
 		},
 		{
 			"TmplWithOneExprAtStart",
 			[]byte(`value="{test} value"`),
 			"tmpl",
 			"value",
+			"",
 			"`${test} value`",
 		},
 		{
@@ -110,6 +148,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="test {value}"`),
 			"tmpl",
 			"value",
+			"",
 			"`test ${value}`",
 		},
 		{
@@ -117,6 +156,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="some {test} value"`),
 			"tmpl",
 			"value",
+			"",
 			"`some ${test} value`",
 		},
 		{
@@ -124,6 +164,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`data-value="test {value}"`),
 			"tmpl",
 			"data-value",
+			"",
 			"`test ${value}`",
 		},
 		{
@@ -131,6 +172,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(` value="test {value}"`),
 			"tmpl",
 			"value",
+			"",
 			"`test ${value}`",
 		},
 		{
@@ -138,6 +180,7 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="a {testValue === ` + "`some ${value}`" + `} value"`),
 			"tmpl",
 			"value",
+			"",
 			"`a ${testValue === `some ${value}`} value`",
 		},
 		{
@@ -145,7 +188,16 @@ func TestNewAttr(t *testing.T) {
 			[]byte(`value="some {test} {value}"`),
 			"tmpl",
 			"value",
+			"",
 			"`some ${test} ${value}`",
+		},
+		{
+			"TmplWithDirAndVal",
+			[]byte(`bind:innerText="Some {text}"`),
+			"tmpl",
+			"bind",
+			"innerText",
+			"`Some ${text}`",
 		},
 	}
 
@@ -170,6 +222,17 @@ func TestNewAttr(t *testing.T) {
 
 			if attr.Name() != td.attrName {
 				t.Fatalf("Attr should have name %q but it is %q", td.attrName, attr.Name())
+			}
+
+			dir, exists := attr.Dir()
+			if td.attrDir == "" && exists {
+				t.Fatalf("Attr should not have a directive, but one exists with value %q", dir)
+			}
+			if td.attrDir != "" && !exists {
+				t.Fatalf("Attr should have a directive, but exists check is false")
+			}
+			if td.attrDir != "" && dir != td.attrDir {
+				t.Fatalf("Attr directive should be %q but it is %q", td.attrDir, dir)
 			}
 
 			if jsContent, _ := attr.RewriteJs(&doNothingRw{}); string(jsContent) != td.attrJsContent {
