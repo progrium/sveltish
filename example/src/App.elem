@@ -8,12 +8,12 @@
 	function test() {
 		name = `[${name}]`;
 	}
-	window.TEST = test;
 </script>
 
 <main test="with {name}" another="test" no-value>
 	<h1>Welcome <strong>{name}</strong>!</h1>
 	<h1>Another <strong>{nameWithSufix}</strong></h1>
+	<button on:click="{test}">Test</button>
 </main>
 <footer>Test Footer</footer>
 
