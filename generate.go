@@ -2,6 +2,7 @@ package sveltish
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -10,9 +11,21 @@ import (
 )
 
 func GenerateJS(c *Component) ([]byte, error) {
+	nrw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
+		return generateCtxLookup(i, name)
+	})
+	arw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
+		newData := [][]byte{}
+		newData = append(newData, []byte(fmt.Sprintf("$$invalidate(%d, ", i)))
+		newData = append(newData, data)
+		newData = append(newData, []byte(")"))
+		return bytes.Join(newData, nil)
+	})
+
 	decStmts := []string{}
 	setStmts := []string{}
 	mntStmts := []string{}
+	lsnStmts := []string{}
 	detStmts := []string{}
 	updStmts := []string{}
 	for _, nv := range c.HTML {
@@ -36,7 +49,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 			)
 			detStmts = append(
 				detStmts,
-				fmt.Sprintf("if (detaching) detach(%s)", nv.name),
+				fmt.Sprintf("detach(%s)", nv.name),
 			)
 		}
 
@@ -64,10 +77,7 @@ func GenerateJS(c *Component) ([]byte, error) {
 				)
 			}
 		case *html.ExprNode:
-			rw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
-				return generateCtxLookup(i, name)
-			})
-			valContent, info := node.RewriteJs(rw)
+			valContent, info := node.RewriteJs(nrw)
 
 			valName := fmt.Sprintf("%s_value", nv.name)
 			decStmts = append(
@@ -98,10 +108,20 @@ func GenerateJS(c *Component) ([]byte, error) {
 
 		if el, ok := nv.node.(html.Element); ok {
 			for _, attr := range el.Attrs() {
-				rw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
-					return generateCtxLookup(i, name)
-				})
-				attContent, info := attr.RewriteJs(rw)
+				attContent, info := attr.RewriteJs(nrw)
+
+				dir, exists := attr.Dir()
+				if exists {
+					if name := attr.Name(); name != "on" {
+						return nil, errors.New("Invaild attribute with directive, " + name + ":" + dir)
+					}
+
+					lsnStmts = append(
+						lsnStmts,
+						fmt.Sprintf("listen(%s, '%s', %s)", nv.name, dir, attContent),
+					)
+					continue
+				}
 
 				attName := generateAttrName(nv.name, attr)
 				decStmts = append(
@@ -134,15 +154,8 @@ func GenerateJS(c *Component) ([]byte, error) {
 		}
 	}
 
-	rw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
-		newData := [][]byte{}
-		newData = append(newData, []byte(fmt.Sprintf("$$invalidate(%d, ", i)))
-		newData = append(newData, data)
-		newData = append(newData, []byte(")"))
-		return bytes.Join(newData, nil)
-	})
 	data, info := c.JS.RewriteForInstance(
-		rw,
+		arw,
 		func(wrapUpds func(js.WrapUpdFn) []byte) []byte {
 			wrpData := [][]byte{}
 			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
@@ -174,17 +187,22 @@ func GenerateJS(c *Component) ([]byte, error) {
   text,
   space,
   attr,
+  listen,
   init,
   insert,
   noop,
   safe_not_equal,
-  set_data
+  set_data,
+  run_all
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
 		for _, decStmt := range decStmts {
 			s.Stmt(decStmt)
 		}
+		s.Stmt("let mounted")
+		s.Stmt("let dispose")
+
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
 			s.Stmt("c()", func(s *js.Source) {
@@ -196,6 +214,16 @@ func GenerateJS(c *Component) ([]byte, error) {
 				for _, mntStmt := range mntStmts {
 					s.Stmt(mntStmt)
 				}
+
+				s.Stmt("if(!mounted)", func(s *js.Source) {
+					s.Line("dispose = [")
+					for _, lsnStmt := range lsnStmts {
+						s.Line("  " + lsnStmt + ",")
+					}
+					s.Line("];")
+
+					s.Stmt("mounted = true")
+				})
 			}, ",")
 			s.Stmt("p(ctx, [dirty])", func(s *js.Source) {
 				for _, updStmt := range updStmts {
@@ -206,8 +234,11 @@ func GenerateJS(c *Component) ([]byte, error) {
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
 				for _, detStmt := range detStmts {
-					s.Stmt(detStmt)
+					s.Stmt("if (detaching)", detStmt)
 				}
+
+				s.Stmt("mounted = false")
+				s.Stmt("run_all(dispose)")
 			})
 
 		})
