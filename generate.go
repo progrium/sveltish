@@ -11,8 +11,41 @@ import (
 )
 
 func GenerateJS(c *Component) ([]byte, error) {
+	sg, err := newScriptGenerator(c)
+	if err != nil {
+		return nil, err
+	}
+
+	s := sg.Source()
+	return s.Bytes(), nil
+}
+
+type stmtType int
+
+const (
+	dec stmtType = iota
+	set
+	mnt
+	lsn
+	det
+	upd
+)
+
+type scriptGenerator struct {
+	name        string
+	stmts       map[stmtType][]string
+	instBody    string
+	instReturns []string
+}
+
+func newScriptGenerator(c *Component) (*scriptGenerator, error) {
+	sg := &scriptGenerator{
+		name:  c.Name,
+		stmts: map[stmtType][]string{},
+	}
+
 	nrw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
-		return generateCtxLookup(i, name)
+		return []byte(fmt.Sprintf("/* %s */ ctx[%d]", name, i))
 	})
 	arw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
 		newData := [][]byte{}
@@ -22,86 +55,90 @@ func GenerateJS(c *Component) ([]byte, error) {
 		return bytes.Join(newData, nil)
 	})
 
-	decStmts := []string{}
-	setStmts := []string{}
-	mntStmts := []string{}
-	lsnStmts := []string{}
-	detStmts := []string{}
-	updStmts := []string{}
 	for _, nv := range c.HTML {
-		decStmts = append(decStmts, fmt.Sprintf("let %s", nv.name))
+		sg.insertf(
+			dec,
+			"let %s",
+			nv.name,
+		)
 		if nv.hasParent {
-			mntStmts = append(
-				mntStmts,
-				fmt.Sprintf(
-					"append(%s, %s)",
-					nv.parentName,
-					nv.name,
-				),
+			sg.insertf(
+				mnt,
+				"append(%s, %s)",
+				nv.parentName,
+				nv.name,
 			)
 		} else {
-			mntStmts = append(
-				mntStmts,
-				fmt.Sprintf(
-					"insert(target, %s, anchor)",
-					nv.name,
-				),
+			sg.insertf(
+				mnt,
+				"insert(target, %s, anchor)",
+				nv.name,
 			)
-			detStmts = append(
-				detStmts,
-				fmt.Sprintf("detach(%s)", nv.name),
+			sg.insertf(
+				det,
+				"if (detaching) detach(%s)",
+				nv.name,
 			)
 		}
 
 		switch node := nv.node.(type) {
 		case *html.ElNode:
-			setStmts = append(
-				setStmts,
-				fmt.Sprintf(`%s = element("%s")`, nv.name, node.Tag()),
+			sg.insertf(
+				set,
+				`%s = element("%s")`,
+				nv.name,
+				node.Tag(),
 			)
 		case *html.LeafElNode:
-			setStmts = append(
-				setStmts,
-				fmt.Sprintf(`%s = element("%s")`, nv.name, node.Tag()),
+			sg.insertf(
+				set,
+				`%s = element("%s")`,
+				nv.name,
+				node.Tag(),
 			)
 		case *html.TxtNode:
 			if html.IsContentWhiteSpace(node) {
-				setStmts = append(
-					setStmts,
-					fmt.Sprintf("%s = space()", nv.name),
+				sg.insertf(
+					set,
+					"%s = space()",
+					nv.name,
 				)
 			} else {
-				setStmts = append(
-					setStmts,
-					fmt.Sprintf(`%s = text("%s")`, nv.name, node.Content()),
+				sg.insertf(
+					set,
+					`%s = text("%s")`,
+					nv.name,
+					node.Content(),
 				)
 			}
 		case *html.ExprNode:
 			valContent, info := node.RewriteJs(nrw)
 
 			valName := fmt.Sprintf("%s_value", nv.name)
-			decStmts = append(
-				decStmts,
-				fmt.Sprintf("let %s = %s", valName, valContent),
+			sg.insertf(
+				dec,
+				"let %s = %s",
+				valName,
+				valContent,
 			)
-			setStmts = append(
-				setStmts,
-				fmt.Sprintf("%s = text(%s)", nv.name, valName),
+			sg.insertf(
+				set,
+				"%s = text(%s)",
+				nv.name,
+				valName,
 			)
 
 			if valDirty := info.Dirty(); valDirty != 0 {
-				updStmts = append(
-					updStmts,
-					fmt.Sprintf(
-						"if (dirty & /*%s*/ %d && %s !== (%s = %s)) set_data(%s, %s)",
-						strings.Join(info.Names(), " "),
-						valDirty,
-						valName,
-						valName,
-						valContent,
-						nv.name,
-						valName,
-					),
+				sg.insertf(
+					upd,
+					"if (dirty & /*%s*/ %d && %s !== (%s = %s)) set_data(%s, %s)",
+					strings.Join(info.Names(), " "),
+					valDirty,
+					valName,
+					valName,
+					valContent,
+					nv.name,
+					valName,
 				)
 			}
 		}
@@ -113,45 +150,54 @@ func GenerateJS(c *Component) ([]byte, error) {
 				dir, exists := attr.Dir()
 				if exists {
 					if name := attr.Name(); name != "on" {
-						return nil, errors.New("Invaild attribute with directive, " + name + ":" + dir)
+						return sg, errors.New("Invaild attribute with directive, " + name + ":" + dir)
 					}
 
-					lsnStmts = append(
-						lsnStmts,
-						fmt.Sprintf("listen(%s, '%s', %s)", nv.name, dir, attContent),
+					sg.insertf(
+						lsn,
+						"listen(%s, '%s', %s)",
+						nv.name,
+						dir,
+						attContent,
 					)
 					continue
 				}
 
-				attName := generateAttrName(nv.name, attr)
-				decStmts = append(
-					decStmts,
-					fmt.Sprintf("let %s", attName),
+				attName := fmt.Sprintf(
+					"%s_%s_value",
+					nv.name,
+					strings.ReplaceAll(attr.Name(), "-", "_"),
 				)
-				setStmt := fmt.Sprintf(
+				sg.insertf(
+					dec,
+					"let %s",
+					attName,
+				)
+
+				setAttrStmt := fmt.Sprintf(
 					"attr(%s, '%s', %s = %s)",
 					nv.name,
 					attr.Name(),
 					attName,
 					attContent,
 				)
-				setStmts = append(
-					setStmts,
-					setStmt,
-				)
+				sg.insert(set, setAttrStmt)
+
 				if attrDirty := info.Dirty(); attrDirty != 0 {
-					updStmts = append(
-						updStmts,
-						fmt.Sprintf(
-							"if (dirty & /*%s*/ %d) %s",
-							strings.Join(info.Names(), " "),
-							attrDirty,
-							setStmt,
-						),
+					sg.insertf(
+						upd,
+						"if (dirty & /*%s*/ %d) %s",
+						strings.Join(info.Names(), " "),
+						attrDirty,
+						setAttrStmt,
 					)
 				}
 			}
 		}
+	}
+
+	if c.JS == nil {
+		return sg, nil
 	}
 
 	data, info := c.JS.RewriteForInstance(
@@ -175,9 +221,50 @@ func GenerateJS(c *Component) ([]byte, error) {
 			return bytes.Join(wrpData, nil)
 		},
 	)
-	instBody := string(data)
-	instReturns := info.Names()
+	sg.instBody = string(data)
+	sg.instReturns = info.Names()
 
+	return sg, nil
+}
+
+func (sg *scriptGenerator) insert(st stmtType, stmt string) {
+	currStmts, exists := sg.stmts[st]
+	if !exists {
+		sg.stmts[st] = []string{stmt}
+		return
+	}
+
+	sg.stmts[st] = append(currStmts, stmt)
+}
+
+func (sg *scriptGenerator) insertf(st stmtType, format string, a ...interface{}) {
+	sg.insert(st, fmt.Sprintf(format, a...))
+}
+
+func (sg *scriptGenerator) printStmts(s *js.Source, st stmtType) {
+	currStmts, exists := sg.stmts[st]
+	if !exists {
+		return
+	}
+
+	for _, stmt := range currStmts {
+		s.Stmt(stmt)
+	}
+}
+
+func (sg *scriptGenerator) hasInst() bool {
+	return sg.instBody != "" || len(sg.instReturns) != 0
+}
+
+func (sg *scriptGenerator) printInst(s *js.Source) {
+	s.Line(sg.instBody)
+	s.Stmt(fmt.Sprintf(
+		"return [%s]",
+		strings.Join(sg.instReturns, ", "),
+	))
+}
+
+func (sg *scriptGenerator) Source() *js.Source {
 	s := &js.Source{}
 	s.Stmt(`import {
   SvelteComponent,
@@ -197,78 +284,62 @@ func GenerateJS(c *Component) ([]byte, error) {
 } from`, s.Str("./runtime"))
 	s.Line("")
 	s.Func("create_fragment", []string{"ctx"}, func(s *js.Source) {
-		for _, decStmt := range decStmts {
-			s.Stmt(decStmt)
-		}
+		sg.printStmts(s, dec)
 		s.Stmt("let mounted")
 		s.Stmt("let dispose")
 
 		s.Line("")
 		s.Stmt("return", func(s *js.Source) {
 			s.Stmt("c()", func(s *js.Source) {
-				for _, setStmt := range setStmts {
-					s.Stmt(setStmt)
-				}
+				sg.printStmts(s, set)
 			}, ",")
 			s.Stmt("m(target, anchor)", func(s *js.Source) {
-				for _, mntStmt := range mntStmts {
-					s.Stmt(mntStmt)
-				}
+				sg.printStmts(s, mnt)
 
 				s.Stmt("if(!mounted)", func(s *js.Source) {
 					s.Line("dispose = [")
-					for _, lsnStmt := range lsnStmts {
-						s.Line("  " + lsnStmt + ",")
+					if lsnStmts, exists := sg.stmts[lsn]; exists {
+						for _, lsnStmt := range lsnStmts {
+							s.Line("  " + lsnStmt + ",")
+						}
 					}
 					s.Line("];")
-
+					s.Line("")
 					s.Stmt("mounted = true")
 				})
 			}, ",")
 			s.Stmt("p(ctx, [dirty])", func(s *js.Source) {
-				for _, updStmt := range updStmts {
-					s.Stmt(updStmt)
-				}
+				sg.printStmts(s, upd)
 			}, ",")
 			s.Line("i: noop,")
 			s.Line("o: noop,")
 			s.Stmt("d(detaching)", func(s *js.Source) {
-				for _, detStmt := range detStmts {
-					s.Stmt("if (detaching)", detStmt)
-				}
-
+				sg.printStmts(s, det)
+				s.Line("")
 				s.Stmt("mounted = false")
 				s.Stmt("run_all(dispose)")
-			})
-
-		})
+			}, ",")
+		}, ";")
 	})
 	s.Line("")
-	if c.JS != nil {
+	if sg.hasInst() {
 		s.Func("instance", []string{"$$self", "$$props", "$$invalidate"}, func(s *js.Source) {
-			s.Line(instBody)
-			s.Stmt("return [" + strings.Join(instReturns, ", ") + "]")
+			sg.printInst(s)
 		})
 	}
 	s.Line("")
-	s.Stmt("class", c.Name, "extends SvelteComponent", func(s *js.Source) {
+	s.Stmt("class", sg.name, "extends SvelteComponent", func(s *js.Source) {
 		s.Stmt("constructor(options)", func(s *js.Source) {
 			s.Stmt("super()")
 			s.Stmt("init(this, options, instance, create_fragment, safe_not_equal, {})")
 		})
 	})
 	s.Line("")
-	s.Stmt("export default", c.Name)
+	s.Stmt("export default", sg.name)
+
+	//
 	fmt.Println(s.String())
-	return s.Bytes(), nil
-}
+	//*/
 
-func generateAttrName(nodeName string, attr html.Attr) string {
-	attrName := strings.ReplaceAll(attr.Name(), "-", "_")
-
-	return fmt.Sprintf("%s_%s_value", nodeName, attrName)
-}
-
-func generateCtxLookup(i int, name string) []byte {
-	return []byte(fmt.Sprintf("/* %s */ ctx[%d]", name, i))
+	return s
 }
