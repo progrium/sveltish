@@ -74,9 +74,14 @@ type lexVarRewriter struct {
 	hasVar  func([]byte, []byte) bool
 }
 
-func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+func NewAssignmentRewriter(s *Script, fn RewriteFn) VarRewriter {
+	rootVars := []Var{}
+	if s != nil {
+		rootVars = s.rootVars()
+	}
+
 	return &lexVarRewriter{
-		s.rootVars(),
+		rootVars,
 		fn,
 		lexRewriteAssignments,
 		func(data, name []byte) bool {
@@ -85,9 +90,14 @@ func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
 	}
 }
 
-func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+func NewVarNameRewriter(s *Script, fn RewriteFn) VarRewriter {
+	rootVars := []Var{}
+	if s != nil {
+		rootVars = s.rootVars()
+	}
+
 	return &lexVarRewriter{
-		s.rootVars(),
+		rootVars,
 		fn,
 		lexRewriteVarNames,
 		func(data, name []byte) bool {
