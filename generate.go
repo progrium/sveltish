@@ -47,13 +47,6 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 	nrw := js.NewVarNameRewriter(c.JS, func(i int, name string, _ js.Var, _ []byte) []byte {
 		return []byte(fmt.Sprintf("/* %s */ ctx[%d]", name, i))
 	})
-	arw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
-		newData := [][]byte{}
-		newData = append(newData, []byte(fmt.Sprintf("$$invalidate(%d, ", i)))
-		newData = append(newData, data)
-		newData = append(newData, []byte(")"))
-		return bytes.Join(newData, nil)
-	})
 
 	for _, nv := range c.HTML {
 		sg.insertf(
@@ -200,6 +193,13 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 		return sg, nil
 	}
 
+	arw := js.NewAssignmentRewriter(c.JS, func(i int, _ string, _ js.Var, data []byte) []byte {
+		newData := [][]byte{}
+		newData = append(newData, []byte(fmt.Sprintf("$$invalidate(%d, ", i)))
+		newData = append(newData, data)
+		newData = append(newData, []byte(")"))
+		return bytes.Join(newData, nil)
+	})
 	data, info := c.JS.RewriteForInstance(
 		arw,
 		func(wrapUpds func(js.WrapUpdFn) []byte) []byte {
@@ -207,16 +207,16 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 			wrpData = append(wrpData, []byte("\n$$self.$$.update = () => {\n"))
 			wrpData = append(
 				wrpData,
-				wrapUpds(func(info *js.VarsInfo, updData []byte) []byte {
+				wrapUpds(func(labelInfo *js.VarsInfo, updData []byte) []byte {
 					return []byte(fmt.Sprintf(
 						"if ($$self.$$.dirty & /*%s*/ %d) {%s\n}\n",
-						strings.Join(info.Names(), " "),
-						info.Dirty(),
+						strings.Join(labelInfo.Names(), " "),
+						labelInfo.Dirty(),
 						updData,
 					))
 				}),
 			)
-			wrpData = append(wrpData, []byte("}\n"))
+			wrpData = append(wrpData, []byte("};\n"))
 
 			return bytes.Join(wrpData, nil)
 		},
