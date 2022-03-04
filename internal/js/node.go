@@ -83,7 +83,7 @@ func (n *Script) RewriteForInstance(
 			for _, r := range ratvRoots {
 				updData, updInfo := r.rewriteAssignments(rw)
 
-				if len(r.name) == 0 {
+				if !r.IsAssignment() {
 					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite(updData)
 					updInfo = MergeVarsInfo(updInfo, varNameInfo)
 				}
@@ -223,6 +223,10 @@ const reactiveLabel = "$"
 
 func (n *LabelNode) IsReactive() bool {
 	return n.Label() == reactiveLabel
+}
+
+func (n *LabelNode) IsAssignment() bool {
+	return len(n.name) > 0
 }
 
 func (n *LabelNode) Js() string {
