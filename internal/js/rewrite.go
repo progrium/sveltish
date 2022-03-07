@@ -2,6 +2,7 @@ package js
 
 import (
 	"bytes"
+	"unicode"
 )
 
 type VarRewriter interface {
@@ -85,7 +86,26 @@ func NewAssignmentRewriter(s *Script, fn RewriteFn) VarRewriter {
 		fn,
 		lexRewriteAssignments,
 		func(data, name []byte) bool {
-			return bytes.HasPrefix(data, name)
+			if !bytes.HasPrefix(data, name) {
+				return false
+			}
+			if len(data) == len(name) {
+				return true
+			}
+
+			rest := data[len(name):]
+			switch {
+			case unicode.IsSpace(rune(rest[0])):
+				return true
+			case bytes.HasPrefix(rest, []byte(eqOp)):
+				return true
+			case bytes.HasPrefix(rest, []byte(plusEqOp)):
+				return true
+			case bytes.HasPrefix(rest, []byte(minusEqOp)):
+				return true
+			}
+
+			return false
 		},
 	}
 }

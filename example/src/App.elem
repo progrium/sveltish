@@ -1,17 +1,19 @@
 <script>
-	let name = "worlds";
+	let name = "a name";
+	let anotherName = "worlds";
 	$: nameWithSufix = `${name}!!!`;
-	$: if (name != "worlds") {
+	$: if (anotherName != "worlds") {
 		console.log("Name changed")
+		name = `[${name}]`;
 	}
 
 	function test() {
-		name = `[${name}]`;
+		anotherName = `[${anotherName}]`;
 	}
 </script>
 
 <main test="with {name}" another="test" no-value>
-	<h1>Welcome <strong>{name}</strong>!</h1>
+	<h1>Welcome <strong>{anotherName}</strong>!</h1>
 	<h1>Another <strong>{nameWithSufix}</strong></h1>
 	<button on:click="{test}">Test</button>
 </main>
