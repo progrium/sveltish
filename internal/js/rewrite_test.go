@@ -155,6 +155,34 @@ func TestLexRewriteVarNames(t *testing.T) {
 			},
 			[]byte("REWRITTEN = skip.method();"),
 		},
+		{
+			"TmplStringWithVarName",
+			[]byte("`${value + ' ' + another}!`"),
+			[][]byte{
+				[]byte("value"),
+				[]byte("another"),
+			},
+			[]byte("`${REWRITTEN + ' ' + REWRITTEN}!`"),
+		},
+		{
+			"LabeledBlockWithVarName",
+			[]byte(
+				`$: if (value == "value") {
+					another();
+					skip();
+				}`,
+			),
+			[][]byte{
+				[]byte("value"),
+				[]byte("another"),
+			},
+			[]byte(
+				`$: if (REWRITTEN == "value") {
+					REWRITTEN();
+					skip();
+				}`,
+			),
+		},
 	}
 
 	for _, td := range testData {

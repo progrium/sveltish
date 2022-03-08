@@ -81,17 +81,23 @@ func (n *Script) RewriteForInstance(
 		wrapUpds(func(wrapUpd WrapUpdFn) []byte {
 			updsData := [][]byte{}
 			for _, r := range ratvRoots {
-				updData, updInfo := r.rewriteAssignments(rw)
+				if r.IsAssignment() {
+					updData, _ := r.rewriteAssignments(rw)
+					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite([]byte(r.body.Js()))
 
-				if len(r.name) == 0 {
+					updsData = append(
+						updsData,
+						wrapUpd(varNameInfo, updData),
+					)
+				} else {
+					updData, updInfo := r.rewriteAssignments(rw)
 					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite(updData)
-					updInfo = MergeVarsInfo(updInfo, varNameInfo)
-				}
 
-				updsData = append(
-					updsData,
-					wrapUpd(updInfo, updData),
-				)
+					updsData = append(
+						updsData,
+						wrapUpd(MergeVarsInfo(updInfo, varNameInfo), updData),
+					)
+				}
 			}
 			return bytes.Join(updsData, nil)
 		}),
@@ -223,6 +229,10 @@ const reactiveLabel = "$"
 
 func (n *LabelNode) IsReactive() bool {
 	return n.Label() == reactiveLabel
+}
+
+func (n *LabelNode) IsAssignment() bool {
+	return len(n.name) > 0
 }
 
 func (n *LabelNode) Js() string {

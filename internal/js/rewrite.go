@@ -2,6 +2,7 @@ package js
 
 import (
 	"bytes"
+	"unicode"
 )
 
 type VarRewriter interface {
@@ -48,18 +49,6 @@ func (info *VarsInfo) insert(newVarIndex int, newVarName string) {
 			}
 			return
 		}
-		if newVarIndex < varIndex {
-			startIndexes := info.indexes[:i]
-			endIndexes := info.indexes[i:]
-			info.indexes = append(startIndexes, newVarIndex)
-			info.indexes = append(info.indexes, endIndexes...)
-
-			startNames := info.names[:i]
-			endNames := info.names[i:]
-			info.names = append(startNames, newVarName)
-			info.names = append(info.names, endNames...)
-			return
-		}
 	}
 	info.indexes = append(info.indexes, newVarIndex)
 	info.names = append(info.names, newVarName)
@@ -74,20 +63,49 @@ type lexVarRewriter struct {
 	hasVar  func([]byte, []byte) bool
 }
 
-func NewAssignmentRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+func NewAssignmentRewriter(s *Script, fn RewriteFn) VarRewriter {
+	rootVars := []Var{}
+	if s != nil {
+		rootVars = s.rootVars()
+	}
+
 	return &lexVarRewriter{
-		s.rootVars(),
+		rootVars,
 		fn,
 		lexRewriteAssignments,
 		func(data, name []byte) bool {
-			return bytes.HasPrefix(data, name)
+			if !bytes.HasPrefix(data, name) {
+				return false
+			}
+			if len(data) == len(name) {
+				return true
+			}
+
+			rest := data[len(name):]
+			switch {
+			case unicode.IsSpace(rune(rest[0])):
+				return true
+			case bytes.HasPrefix(rest, []byte(eqOp)):
+				return true
+			case bytes.HasPrefix(rest, []byte(plusEqOp)):
+				return true
+			case bytes.HasPrefix(rest, []byte(minusEqOp)):
+				return true
+			}
+
+			return false
 		},
 	}
 }
 
-func NewVarNameRewriter(s *Script, fn RewriteFn) *lexVarRewriter {
+func NewVarNameRewriter(s *Script, fn RewriteFn) VarRewriter {
+	rootVars := []Var{}
+	if s != nil {
+		rootVars = s.rootVars()
+	}
+
 	return &lexVarRewriter{
-		s.rootVars(),
+		rootVars,
 		fn,
 		lexRewriteVarNames,
 		func(data, name []byte) bool {
@@ -242,7 +260,10 @@ func lexRewriteVarNames(lastLex lexFn) lexFn {
 			lex.skip(skpr, func(_ byte) {
 				switch open, _ := skpr.group(); string(open) {
 				case parenOpen, curlyOpen, tmplQuoteExprOpen:
-					acceeptAndEmitVarName()
+					lex.backup()
+					if !acceeptAndEmitVarName() {
+						lex.pop()
+					}
 				}
 			})
 			return lexRewriteVarNamesFunc
@@ -259,7 +280,7 @@ func lexRewriteVarNames(lastLex lexFn) lexFn {
 	return lexRewriteVarNamesFunc
 }
 
-// rewriteParser will call the rewriteFunc for everything emited by the lexer, and merge the returned data.
+// rewriteParser will call the rewriteFunc for every rewrite target emited by the lexer, and merge the returned data.
 func rewriteParser(lex *lexer, rw func([]byte) []byte) []byte {
 	rwData := [][]byte{}
 	for tt, data := lex.Next(); tt != eofType; {
