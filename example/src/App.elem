@@ -1,19 +1,22 @@
 <script>
 	let name = "a name";
-	let anotherName = "worlds";
+	let worlds = "worlds";
+	let count = 0;
+
 	$: nameWithSufix = `${name}!!!`;
-	$: if (anotherName != "worlds") {
-		console.log("Name changed")
-		name = `[${name}]`;
+	$: if (worlds != "worlds") {
+		console.log("Worlds changed");
+		count += 1;
 	}
 
 	function test() {
-		anotherName = `[${anotherName}]`;
+		name = `[${name}]`;
+		worlds = `[${worlds}]`;
 	}
 </script>
 
-<main test="with {name}" another="test" no-value>
-	<h1>Welcome <strong>{anotherName}</strong>!</h1>
+<main data-name="The name is {name}" data-count="{count}" data-another="test" data-no-value>
+	<h1>Welcome <strong>{worlds}</strong>!</h1>
 	<h1>Another <strong>{nameWithSufix}</strong></h1>
 	<button on:click="{test}">Test</button>
 </main>

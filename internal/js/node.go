@@ -81,17 +81,23 @@ func (n *Script) RewriteForInstance(
 		wrapUpds(func(wrapUpd WrapUpdFn) []byte {
 			updsData := [][]byte{}
 			for _, r := range ratvRoots {
-				updData, updInfo := r.rewriteAssignments(rw)
+				if r.IsAssignment() {
+					updData, _ := r.rewriteAssignments(rw)
+					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite([]byte(r.body.Js()))
 
-				if !r.IsAssignment() {
+					updsData = append(
+						updsData,
+						wrapUpd(varNameInfo, updData),
+					)
+				} else {
+					updData, updInfo := r.rewriteAssignments(rw)
 					_, varNameInfo := NewVarNameRewriter(n, nil).Rewrite(updData)
-					updInfo = MergeVarsInfo(updInfo, varNameInfo)
-				}
 
-				updsData = append(
-					updsData,
-					wrapUpd(updInfo, updData),
-				)
+					updsData = append(
+						updsData,
+						wrapUpd(MergeVarsInfo(updInfo, varNameInfo), updData),
+					)
+				}
 			}
 			return bytes.Join(updsData, nil)
 		}),
