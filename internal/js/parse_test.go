@@ -134,61 +134,78 @@ func TestParseAndReprint(t *testing.T) {
 	}
 }
 
-/*func TestParseAndPrintReactive(t *testing.T) {
+func TestIsFunc(t *testing.T) {
 	testData := []struct {
 		name   string
 		input  []byte
-		output string
+		output bool
 	}{
 		{
-			"LabeledAssignment",
-			[]byte("$: some = 'value';"),
-			`
-let  some;
-$$self.$$.update = () => {
-$: some = 'value';
-};`,
+			"NamedFunc",
+			[]byte(`function func() {
+				do("somthing");
+			}`),
+			true,
 		},
 		{
-			"LabeledStatment",
-			[]byte(
-				`$: if (test = 'value') {
-					func();
-				}`,
-			),
-			`
-$$self.$$.update = () => {
-$: if (test = 'value') {
-					func();
-				}
-};`,
+			"NamedFuncWithArgs",
+			[]byte(`function func(a, b) {
+				do("somthing");
+			}`),
+			true,
 		},
 		{
-			"LabeledBlock",
-			[]byte(
-				`$: {
-					func();
-				}`,
-			),
-			`
-$$self.$$.update = () => {
-$: {
-					func();
-				}
-};`,
+			"AnonymousFunc",
+			[]byte("function() { do('somthing'); }"),
+			true,
+		},
+		{
+			"ArrowFunc",
+			[]byte("() => do('somthing')"),
+			true,
+		},
+		{
+			"ArrowFuncWithArgs",
+			[]byte("(a, b) => do('somthing')"),
+			true,
+		},
+		{
+			"NoParenArrowFunc",
+			[]byte("a => do('somthing')"),
+			true,
+		},
+		{
+			"MultiLineArrowFunc",
+			[]byte(`function func() {
+				do("somthing");
+			}`),
+			true,
+		},
+		{
+			"Object",
+			[]byte("{ some: 'value' }"),
+			false,
+		},
+		{
+			"Paren",
+			[]byte("(skippedValue, usedValue)"),
+			false,
+		},
+		{
+			"String",
+			[]byte("'function (not)'"),
+			false,
 		},
 	}
+
 	for _, td := range testData {
 		td := td
 		t.Run(td.name, func(t *testing.T) {
-			script, err := Parse(bytes.NewReader(td.input))
-			if err != nil {
-				t.Fatalf("Parse return error: %q", err.Error())
-			}
+			result := IsFunc(td.input)
 
-			if js := script.Js(); js != td.output {
-				t.Fatalf("Expected %q but output %q", td.output, js)
+			if td.output != result {
+				t.Fatalf("Expected %t but found %t for %q", td.output, result, td.input)
 			}
 		})
 	}
-}*/
+}

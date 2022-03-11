@@ -38,6 +38,7 @@ const (
 	finallyKeyword     = "finally"
 	classKeyword       = "class"
 	extendsKeyword     = "extends"
+	arrowFuncOp        = "=>"
 	eqOp               = "="
 	plusEqOp           = "+="
 	minusEqOp          = "-="
@@ -115,12 +116,7 @@ type lexer struct {
 
 // startNewLexer creates and starts a new lexer.
 func startNewLexer(initLex func(lexFn) lexFn, data []byte) *lexer {
-	lex := &codeLexer{
-		data:     data,
-		startPos: 0,
-		nextPos:  0,
-		items:    make(chan lexerItem),
-	}
+	lex := newCodeLexer(data)
 	go lex.run(initLex)
 
 	return &lexer{
@@ -166,6 +162,15 @@ type codeLexer struct {
 	startPos int
 	nextPos  int
 	items    chan lexerItem
+}
+
+func newCodeLexer(data []byte) *codeLexer {
+	return &codeLexer{
+		data:     data,
+		startPos: 0,
+		nextPos:  0,
+		items:    make(chan lexerItem),
+	}
 }
 
 // run starts the lexers output (expected to be in its own goroutine)
