@@ -16,6 +16,16 @@ type Attr interface {
 	RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo)
 }
 
+// IsInlineEvt checks if a given attribute contains an inline event handler
+func IsInlineEvt(attr Attr) bool {
+	eAttr, ok := attr.(*exprAttr)
+	if !ok {
+		return false
+	}
+
+	return eAttr.name == "on" && eAttr.hasDir && js.IsFunc([]byte(eAttr.expr))
+}
+
 func newAttr(data []byte) (Attr, error) {
 	prts := bytes.SplitN(data, []byte("="), 2)
 

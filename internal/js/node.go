@@ -106,6 +106,17 @@ func (n *Script) RewriteForInstance(
 	return bytes.Join(data, nil), info
 }
 
+func (n *Script) AppendConst(name string, body string) {
+	n.roots = append(n.roots, &VarNode{
+		keyword:  []byte("\n" + constKeyword),
+		name:     []byte(" " + name),
+		equals:   []byte(" " + eqOp),
+		value:    &BlockNode{[]byte(" " + body)},
+		simi:     []byte(simiOp),
+		comments: &childComments{},
+	})
+}
+
 func (n *Script) Js() string {
 	return noRewriteJs(n)
 }

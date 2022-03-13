@@ -48,6 +48,7 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 		return []byte(fmt.Sprintf("/* %s */ ctx[%d]", name, i))
 	})
 
+	evtNames := map[string]int{}
 	for _, nv := range c.HTML {
 		sg.insertf(
 			dec,
@@ -138,8 +139,33 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 
 		if el, ok := nv.node.(html.Element); ok {
 			for _, attr := range el.Attrs() {
-				attContent, info := attr.RewriteJs(nrw)
+				if html.IsInlineEvt(attr) {
+					attContent, _ := attr.RewriteJs(nil)
+					dir, _ := attr.Dir()
 
+					varName := dir + "_handler"
+					if count, exists := evtNames[varName]; exists {
+						count += 1
+						evtNames[varName] = count
+
+						varName += fmt.Sprintf("_%d", count)
+					} else {
+						evtNames[varName] = 0
+					}
+
+					c.JS.AppendConst(varName, string(attContent))
+					varCtx, _ := nrw.Rewrite([]byte(varName))
+					sg.insertf(
+						lsn,
+						"listen(%s, '%s', %s)",
+						nv.name,
+						dir,
+						varCtx,
+					)
+					continue
+				}
+
+				attContent, info := attr.RewriteJs(nrw)
 				dir, exists := attr.Dir()
 				if exists {
 					if name := attr.Name(); name != "on" {

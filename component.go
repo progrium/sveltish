@@ -92,6 +92,10 @@ func NewComponent(name string, doc *html.Doc) (*Component, error) {
 		return true, nil
 	})
 
+	if c.JS == nil {
+		c.JS = &js.Script{}
+	}
+
 	return c, nil
 }
 
