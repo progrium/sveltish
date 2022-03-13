@@ -148,6 +148,10 @@ func (n *ExprNode) Content() string {
 }
 
 func (n *ExprNode) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
+	if rw == nil {
+		return []byte(n.js), js.NewEmptyVarsInfo()
+	}
+
 	return rw.Rewrite([]byte(n.js))
 }
 

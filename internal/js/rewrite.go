@@ -57,20 +57,15 @@ func (info *VarsInfo) insert(newVarIndex int, newVarName string) {
 type RewriteFn func(int, string, Var, []byte) []byte
 
 type lexVarRewriter struct {
-	vars    []Var
+	s       *Script
 	fn      RewriteFn
 	lexInit func(lexFn) lexFn
 	hasVar  func([]byte, []byte) bool
 }
 
 func NewAssignmentRewriter(s *Script, fn RewriteFn) VarRewriter {
-	rootVars := []Var{}
-	if s != nil {
-		rootVars = s.rootVars()
-	}
-
 	return &lexVarRewriter{
-		rootVars,
+		s,
 		fn,
 		lexRewriteAssignments,
 		func(data, name []byte) bool {
@@ -99,13 +94,8 @@ func NewAssignmentRewriter(s *Script, fn RewriteFn) VarRewriter {
 }
 
 func NewVarNameRewriter(s *Script, fn RewriteFn) VarRewriter {
-	rootVars := []Var{}
-	if s != nil {
-		rootVars = s.rootVars()
-	}
-
 	return &lexVarRewriter{
-		rootVars,
+		s,
 		fn,
 		lexRewriteVarNames,
 		func(data, name []byte) bool {
@@ -115,11 +105,17 @@ func NewVarNameRewriter(s *Script, fn RewriteFn) VarRewriter {
 }
 
 func (rw *lexVarRewriter) Rewrite(data []byte) ([]byte, *VarsInfo) {
-	lex := startNewLexer(rw.lexInit, data)
 	info := NewEmptyVarsInfo()
+
+	if rw.s == nil {
+		return data, info
+	}
+	rootVars := rw.s.rootVars()
+
+	lex := startNewLexer(rw.lexInit, data)
 	newData := rewriteParser(lex, func(currData []byte) []byte {
 		i := -1
-		for _, v := range rw.vars {
+		for _, v := range rootVars {
 			for _, name := range v.VarNames() {
 				i += 1
 				if !rw.hasVar(currData, []byte(name)) {

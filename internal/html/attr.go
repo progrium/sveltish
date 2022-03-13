@@ -9,11 +9,21 @@ import (
 	"github.com/progrium/sveltish/internal/js"
 )
 
-// An attr represents an attribute on an html element.
+// An Attr represents an attribute on an html element.
 type Attr interface {
 	Name() string
 	Dir() (string, bool)
 	RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo)
+}
+
+// IsInlineEvt checks if a given attribute contains an inline event handler
+func IsInlineEvt(attr Attr) bool {
+	eAttr, ok := attr.(*exprAttr)
+	if !ok {
+		return false
+	}
+
+	return eAttr.name == "on" && eAttr.hasDir && js.IsFunc([]byte(eAttr.expr))
 }
 
 func newAttr(data []byte) (Attr, error) {
@@ -152,6 +162,10 @@ type exprAttr struct {
 }
 
 func (attr *exprAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
+	if rw == nil {
+		return []byte(attr.expr), js.NewEmptyVarsInfo()
+	}
+
 	return rw.Rewrite([]byte(attr.expr))
 }
 
@@ -168,11 +182,14 @@ func (attr *tmplAttr) RewriteJs(rw js.VarRewriter) ([]byte, *js.VarsInfo) {
 
 	allInfo := []*js.VarsInfo{}
 	for i, expr := range attr.exprs {
-		rwData, info := rw.Rewrite([]byte(expr))
-		allInfo = append(allInfo, info)
-
 		data = append(data, []byte("${"))
-		data = append(data, rwData)
+		if rw != nil {
+			rwData, info := rw.Rewrite([]byte(expr))
+			data = append(data, rwData)
+			allInfo = append(allInfo, info)
+		} else {
+			data = append(data, []byte(expr))
+		}
 		data = append(data, []byte("}"))
 		data = append(data, []byte(strings.ReplaceAll(attr.tmpl[i+1], "`", "\\`")))
 	}

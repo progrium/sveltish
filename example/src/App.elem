@@ -1,24 +1,30 @@
 <script>
 	let name = "a name";
-	let worlds = "worlds";
+	let world = "world";
 	let count = 0;
 
 	$: nameWithSufix = `${name}!!!`;
-	$: if (worlds != "worlds") {
+	$: if (world != "world") {
 		console.log("Worlds changed");
 		count += 1;
 	}
 
-	function test() {
+	function updateName() {
 		name = `[${name}]`;
-		worlds = `[${worlds}]`;
 	}
 </script>
 
 <main data-name="The name is {name}" data-count="{count}" data-another="test" data-no-value>
-	<h1>Welcome <strong>{worlds}</strong>!</h1>
-	<h1>Another <strong>{nameWithSufix}</strong></h1>
-	<button on:click="{test}">Test</button>
+	<h1>Welcome <strong>{nameWithSufix}</strong></h1>
+	<h1>Hello <strong>{world}</strong></h1>
+	<button on:click="{updateName}">Update Name</button>
+	<button
+		on:click="{() => {
+			world = `[${world}]`;
+		}}"
+	>
+		Update Worlds
+	</button>
 </main>
 <footer>Test Footer</footer>
 

@@ -363,3 +363,24 @@ func nodeForKeyword(kw string) (interface {
 
 	return nil, false
 }
+
+// IsFunc parses the given data and checks if it is prefixed like a function
+// call.
+func IsFunc(data []byte) bool {
+	lex := newCodeLexer(data)
+	defer close(lex.items) //NOTE, .items not used so probably not needed
+
+	lex.acceptSpaces()
+	switch {
+	case lex.acceptKeyword(funcKeyword):
+		return true
+	case lex.acceptExact(parenOpen):
+		lex.skip(newParenGroupSkipper(), nil)
+		lex.acceptSpaces()
+		return lex.acceptExact(arrowFuncOp)
+	case lex.acceptVarName():
+		lex.acceptSpaces()
+		return lex.acceptExact(arrowFuncOp)
+	}
+	return false
+}
