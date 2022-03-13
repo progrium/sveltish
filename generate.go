@@ -79,14 +79,14 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 		case *html.ElNode:
 			sg.insertf(
 				set,
-				`%s = element("%s")`,
+				`%s = element(%q)`,
 				nv.name,
 				node.Tag(),
 			)
 		case *html.LeafElNode:
 			sg.insertf(
 				set,
-				`%s = element("%s")`,
+				`%s = element(%q)`,
 				nv.name,
 				node.Tag(),
 			)
@@ -100,7 +100,7 @@ func newScriptGenerator(c *Component) (*scriptGenerator, error) {
 			} else {
 				sg.insertf(
 					set,
-					`%s = text("%s")`,
+					`%s = text(%q)`,
 					nv.name,
 					node.Content(),
 				)
